@@ -9,53 +9,174 @@
   </head>
   <body>
     <main id="app">
-      <nav class="tabs" id="tabs">
-        <button class="tab" data-tab="today">Today</button>
-        <button class="tab" data-tab="codex">Codex</button>
-        <button class="tab" data-tab="achievements">업적</button>
-        <button class="tab" data-tab="gallery">Gallery</button>
+      <!-- ───── Topbar: tabs + token pill + menu ───── -->
+      <nav class="topbar" id="topbar">
+        <button class="tab" data-tab="today" type="button">
+          <span class="dot"></span>
+          <span>Today</span>
+        </button>
+        <button class="tab" data-tab="codex" type="button">
+          <span class="dot"></span>
+          <span>Codex</span>
+        </button>
+        <button class="tab" data-tab="achievements" type="button">
+          <span class="dot"></span>
+          <span>Achievements</span>
+        </button>
+        <button class="tab" data-tab="gallery" type="button">
+          <span class="dot"></span>
+          <span>Gallery</span>
+        </button>
+
+        <div class="topbar-spacer"></div>
+
+        <div class="token-pill" id="token-pill" title="오늘 누적 토큰">
+          <span class="pulse"></span>
+          <span id="token-pill-value">—</span>
+        </div>
       </nav>
 
-      <section class="view" data-view="today" hidden>
-        <canvas id="universe-canvas"></canvas>
-        <div id="stats-bar">
-          <div class="stats-row stats-primary">
-            <span class="stats-tokens" id="s-tokens">—</span>
-            <span class="stats-stars" id="s-stars"></span>
-            <span class="stats-galaxy" id="s-galaxy"></span>
+      <!-- ───── Content ───── -->
+      <div class="content">
+        <!-- TODAY -->
+        <section class="view" data-view="today" hidden>
+          <!-- Dedicated header row so cluster/zoom info never overlaps the starfield. -->
+          <div class="today-header">
+            <div class="th-cluster">
+              <span class="th-glyph"></span>
+              <span class="th-name" id="cluster-name">—</span>
+              <span class="th-sub" id="cluster-sub">SEED · —</span>
+            </div>
+            <div class="th-zoom">
+              <span class="th-zoom-lbl">ZOOM</span>
+              <span class="th-zoom-x" id="zoom-x">1.0x</span>
+            </div>
           </div>
-          <div class="stats-row stats-secondary">
-            <span id="s-session" class="stats-session"></span>
-            <span id="s-constellation" class="stats-const"></span>
+
+          <div class="universe-wrap">
+            <canvas id="universe-canvas"></canvas>
+
+            <!-- Discovered planets pinned at world coordinates, kept in sync
+                 with the camera by today.ts. Pointer events bubble through
+                 the container; each pin enables them on itself. -->
+            <div class="planet-overlay" id="planet-overlay" aria-hidden="false"></div>
+
+            <button
+              class="discoveries-badge"
+              id="discoveries-badge"
+              type="button"
+              hidden
+            >
+              <span class="plus">+</span>
+              <span id="discoveries-badge-count">0</span>
+              <span>NEW DISCOVERIES</span>
+            </button>
           </div>
-          <div class="stats-hint" id="s-hint">스크롤: 줌 · 드래그: 이동 · 별 클릭: 별자리</div>
+
+          <div class="today-hud">
+            <div class="row1">
+              <span class="token-count" id="hud-tokens">—</span>
+              <span class="star-counter">
+                <span class="gly"><span style="height:3px"></span><span style="height:6px"></span><span style="height:9px"></span></span>
+                <b id="hud-stars">0</b>
+                <span>/ 1000</span>
+                <span class="sep">·</span>
+                <span class="gtype" id="hud-galaxy">—</span>
+              </span>
+            </div>
+            <div class="session-meta" id="hud-session">세션 없음</div>
+            <div class="hint-row">
+              <b>WHEEL</b> ZOOM<span class="sep">·</span><b>DRAG</b> PAN<span class="sep">·</span><b>CLICK</b> CONSTELLATION
+            </div>
+          </div>
+        </section>
+
+        <!-- CODEX -->
+        <section class="view" data-view="codex" hidden>
+          <div class="scroll">
+            <div class="page-head">
+              <div>
+                <h1>Codex</h1>
+                <div class="desc">PLANET ARCHIVE · 30 TYPES</div>
+              </div>
+              <div class="right">
+                <div class="big"><span id="codex-discovered">0</span><span class="of">/</span><span id="codex-total">30</span></div>
+                <span class="lbl">DISCOVERED</span>
+              </div>
+            </div>
+            <div id="codex-content"></div>
+          </div>
+        </section>
+
+        <!-- ACHIEVEMENTS -->
+        <section class="view" data-view="achievements" hidden>
+          <div class="scroll">
+            <div class="page-head">
+              <div>
+                <h1>Achievements</h1>
+                <div class="desc">MILESTONES &amp; RHYTHM</div>
+              </div>
+              <div class="right">
+                <div class="big"><span id="ach-earned">0</span><span class="of">/</span><span id="ach-total">0</span></div>
+                <span class="lbl">EARNED</span>
+              </div>
+            </div>
+            <div class="ach-cat-tabs" id="ach-cat-tabs">
+              <button class="ach-cat on" data-cat="starter" type="button">시작</button>
+              <button class="ach-cat" data-cat="collection" type="button">수집</button>
+              <button class="ach-cat" data-cat="time" type="button">시간</button>
+              <button class="ach-cat" data-cat="rhythm" type="button">리듬</button>
+              <button class="ach-cat" data-cat="anniversary" type="button">기념</button>
+            </div>
+            <ul class="ach-list" id="ach-list"></ul>
+          </div>
+        </section>
+
+        <!-- GALLERY -->
+        <section class="view" data-view="gallery" hidden>
+          <div class="scroll">
+            <div class="page-head">
+              <div>
+                <h1>Gallery</h1>
+                <div class="desc">365 DAYS COLLECTION</div>
+              </div>
+              <div class="seg" id="gallery-range">
+                <button class="on" data-range="week" type="button">1주</button>
+                <button data-range="month" type="button">1개월</button>
+                <button data-range="all" type="button">전체</button>
+              </div>
+            </div>
+
+            <div class="gallery-stats" id="gallery-stats"></div>
+            <div id="gallery-content"></div>
+          </div>
+        </section>
+
+        <!-- DISCOVERY OVERLAY (full-screen, slides in over current view) -->
+        <div class="discovery-bg" id="discovery-overlay" hidden>
+          <div class="discovery-queue-bar" id="discovery-queue-bar" hidden>
+            <button class="dq-arrow" id="dq-prev" type="button">‹</button>
+            <div class="dq-counter">
+              <span class="cur" id="dq-cur">01</span>
+              <span class="sep">/</span>
+              <span class="tot" id="dq-tot">03</span>
+              <span class="lbl">NEW</span>
+            </div>
+            <button class="dq-arrow" id="dq-next" type="button">›</button>
+          </div>
+          <div class="discovery-card" id="discovery-card"></div>
         </div>
-      </section>
 
-      <section class="view" data-view="codex" hidden>
-        <div class="codex-summary" id="codex-summary">로딩…</div>
-        <div class="codex-content" id="codex-content"></div>
-      </section>
-
-      <section class="view" data-view="achievements" hidden>
-        <ul class="ach-list" id="ach-list">
-          <li class="ach-empty">로딩…</li>
-        </ul>
-      </section>
-
-      <section class="view" data-view="gallery" hidden>
-        <div class="gallery-controls">
-          <button class="range-btn" data-range="week">1주</button>
-          <button class="range-btn" data-range="month">1개월</button>
-          <button class="range-btn" data-range="all">전체</button>
+        <!-- CODEX PLANET DETAIL MODAL -->
+        <div class="planet-modal" id="planet-modal" hidden>
+          <button class="pm-close-fixed" id="planet-modal-close" type="button">×</button>
+          <div id="planet-modal-body"></div>
         </div>
-        <div class="gallery-grid" id="gallery-grid"></div>
-      </section>
 
-      <div class="modal-backdrop" id="modal-backdrop" hidden>
-        <div class="modal" id="modal">
-          <button class="modal-close" id="modal-close" aria-label="닫기">×</button>
-          <div class="modal-body" id="modal-body"></div>
+        <!-- GALLERY FULL-SCREEN OVERLAY -->
+        <div class="gal-overlay" id="gal-overlay" hidden>
+          <button class="close" id="gal-overlay-close" type="button">×</button>
+          <div class="frame" id="gal-overlay-frame"></div>
         </div>
       </div>
     </main>

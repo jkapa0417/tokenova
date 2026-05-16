@@ -28,3 +28,8 @@ dist-ssr
 
 # Local dev artifacts
 /tmp/tokenova-*.log
+
+# Ad-hoc UI debugging screenshots dropped at repo root
+/current_screen.png
+/codex_modal_design.png
+/no_use_blackhole.png

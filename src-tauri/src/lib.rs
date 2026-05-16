@@ -39,6 +39,8 @@ pub fn run() {
             commands::save_constellation,
             commands::get_universe_by_id,
             commands::get_gallery,
+            commands::get_pending_discoveries,
+            commands::acknowledge_planets,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]

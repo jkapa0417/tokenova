@@ -1,20 +1,22 @@
 // Shared types — mirror the Rust engine payloads.
 
+export type GalaxyType =
+  | "black_hole"
+  | "nebula"
+  | "cluster"
+  | "galaxy"
+  | "mega_galaxy"
+  | "super_cluster";
+
 export interface Universe {
   id: number;
   date: string;
   star_count: number;
-  galaxy_type:
-    | "black_hole"
-    | "nebula"
-    | "cluster"
-    | "galaxy"
-    | "mega_galaxy"
-    | "super_cluster"
-    | null;
+  galaxy_type: GalaxyType | null;
   seed: number;
   layout_shape: string | null;
   palette: string | null;
+  cluster_name: string | null;
 }
 
 export interface Star {
@@ -40,6 +42,8 @@ export interface Planet {
   seed: number;
   position_x: number;
   position_y: number;
+  discovered_at?: string;
+  acknowledged_at?: string | null;
 }
 
 export interface Nebula {

@@ -1,27 +1,24 @@
-// Gallery view: grid of past universes with range selector + detail modal.
-// Each cell renders a small read-only canvas preview.
+// Gallery view: month-grouped 7-column calendar of past universes.
+// Each cell renders a thumbnail (or blackhole for empty days). Clicking
+// opens a fullscreen overlay with the full universe canvas.
 
 import { invoke } from "@tauri-apps/api/core";
 
-import { worldToScreen, makeView } from "../universe/camera";
+import { makeView } from "../universe/camera";
 import { UniverseRenderer } from "../universe/renderer";
-import {
-  DISPLAY_H,
-  DISPLAY_W,
-  type Constellation,
-  type Nebula,
-  type Planet,
-  type Star,
-  type Universe,
+import type {
+  Constellation,
+  Nebula,
+  Planet,
+  Star,
+  Universe,
 } from "../universe/types";
-
-import { openModal } from "./modal";
 
 type Range = "week" | "month" | "all";
 
 interface UniverseSummary {
   id: number;
-  date: string;
+  date: string;            // YYYY-MM-DD
   star_count: number;
   planet_count: number;
   galaxy_type: string | null;
@@ -37,191 +34,239 @@ interface ReadOnlyUniverse {
   constellations: Constellation[];
 }
 
-const GALAXY_ICON: Record<string, string> = {
-  black_hole: "●",
-  nebula: "✦",
-  cluster: "✧",
-  galaxy: "☆",
-  mega_galaxy: "★",
-  super_cluster: "✶",
-};
-
-const GALAXY_LABEL: Record<string, string> = {
-  black_hole: "블랙홀",
-  nebula: "성운",
-  cluster: "별무리",
-  galaxy: "은하",
-  mega_galaxy: "거대 은하",
-  super_cluster: "초은하단",
-};
+const MONTH_NAMES = [
+  "1월", "2월", "3월", "4월", "5월", "6월",
+  "7월", "8월", "9월", "10월", "11월", "12월",
+];
 
 let currentRange: Range = "week";
-let attached = false;
+let wiredUp = false;
+let lastSummaries: UniverseSummary[] = [];
 
 export async function activateGallery(): Promise<void> {
-  ensureControls();
+  ensureWired();
   await loadRange(currentRange);
 }
 
-function ensureControls() {
-  if (attached) return;
-  document.querySelectorAll<HTMLButtonElement>(".range-btn").forEach((btn) => {
+function ensureWired() {
+  if (wiredUp) return;
+
+  document.querySelectorAll<HTMLButtonElement>("#gallery-range button").forEach((btn) => {
     btn.addEventListener("click", () => {
       const range = (btn.dataset.range as Range) ?? "week";
       currentRange = range;
+      document.querySelectorAll<HTMLButtonElement>("#gallery-range button").forEach((b) => {
+        b.classList.toggle("on", b.dataset.range === range);
+      });
       void loadRange(range);
     });
   });
-  attached = true;
+
+  const close = document.getElementById("gal-overlay-close");
+  if (close) close.addEventListener("click", () => closeOverlay());
+  const backdrop = document.getElementById("gal-overlay");
+  if (backdrop) {
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) closeOverlay();
+    });
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeOverlay();
+  });
+
+  wiredUp = true;
 }
 
 async function loadRange(range: Range) {
-  const $grid = document.getElementById("gallery-grid");
-  if (!$grid) return;
-
-  document.querySelectorAll<HTMLButtonElement>(".range-btn").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.range === range);
-  });
+  const $stats = document.getElementById("gallery-stats");
+  const $content = document.getElementById("gallery-content");
+  if (!$stats || !$content) return;
 
   try {
     const summaries = await invoke<UniverseSummary[]>("get_gallery", { range });
-    if (summaries.length === 0) {
-      $grid.innerHTML = `<div class="gallery-empty">아직 기록된 우주가 없어요.</div>`;
-      return;
-    }
-    $grid.innerHTML = summaries.map(renderCell).join("");
-    summaries.forEach((s) => {
-      drawMini(s);
-      const cell = $grid.querySelector<HTMLElement>(`[data-id="${s.id}"]`);
-      cell?.addEventListener("click", () => void openDetail(s));
-    });
+    lastSummaries = summaries;
+
+    paintStats($stats, summaries);
+    $content.innerHTML = buildMonthBlocks(summaries, range);
+    attachCellClicks();
   } catch (e) {
     console.error("gallery:", e);
-    $grid.innerHTML = `<div class="gallery-empty">로딩 실패</div>`;
+    $content.innerHTML = `<div style="color: var(--fg-3); text-align: center; padding: 40px 0;">로딩 실패</div>`;
   }
 }
 
-function renderCell(s: UniverseSummary): string {
-  const galaxy = s.galaxy_type ?? "(진행 중)";
-  const icon = (s.galaxy_type && GALAXY_ICON[s.galaxy_type]) ?? "·";
+function paintStats(el: HTMLElement, summaries: UniverseSummary[]) {
+  const totalStars = summaries.reduce((acc, s) => acc + s.star_count, 0);
+  const totalPlanets = summaries.reduce((acc, s) => acc + s.planet_count, 0);
+  const blackHoles = summaries.filter((s) => s.galaxy_type === "black_hole").length;
+  el.innerHTML = `
+    <div class="stat"><div class="num">${summaries.length}</div><div class="lbl">UNIVERSES</div></div>
+    <div class="stat"><div class="num">${totalStars}</div><div class="lbl">STARS</div></div>
+    <div class="stat"><div class="num">${totalPlanets}</div><div class="lbl">PLANETS</div></div>
+    <div class="stat"><div class="num">${blackHoles}</div><div class="lbl">BLACK HOLES</div></div>
+  `;
+}
+
+/**
+ * Build month blocks. Each block has a header (month name + meta) and a
+ * 7-column grid covering every day of that month — empty days render as a
+ * muted placeholder, days with universes show the cell.
+ */
+function buildMonthBlocks(summaries: UniverseSummary[], range: Range): string {
+  if (summaries.length === 0) {
+    return `<div style="color: var(--fg-3); text-align: center; padding: 40px 0;">아직 기록된 우주가 없어요.</div>`;
+  }
+
+  const byDate = new Map<string, UniverseSummary>();
+  for (const s of summaries) byDate.set(s.date, s);
+
+  // Determine which months to render.
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+  const monthsToShow = collectMonths(summaries, range, today);
+
+  return monthsToShow
+    .map((month) => renderMonthBlock(month.year, month.month, byDate, todayIso))
+    .join("");
+}
+
+interface MonthSlot {
+  year: number;
+  month: number; // 0-indexed
+}
+
+function collectMonths(
+  summaries: UniverseSummary[],
+  range: Range,
+  today: Date,
+): MonthSlot[] {
+  const months = new Set<string>();
+  // Always include the current month so the user sees today's slot.
+  months.add(`${today.getFullYear()}-${today.getMonth()}`);
+  for (const s of summaries) {
+    const [y, m] = s.date.split("-").map((x) => parseInt(x, 10));
+    months.add(`${y}-${m - 1}`);
+  }
+  const arr = Array.from(months).map((key) => {
+    const [y, m] = key.split("-").map((x) => parseInt(x, 10));
+    return { year: y, month: m };
+  });
+  arr.sort((a, b) => b.year - a.year || b.month - a.month);
+
+  if (range === "week") {
+    // Limit to the current month only.
+    return arr.filter((s) => s.year === today.getFullYear() && s.month === today.getMonth());
+  }
+  if (range === "month") {
+    // Current + previous.
+    return arr.slice(0, 2);
+  }
+  return arr;
+}
+
+function renderMonthBlock(
+  year: number,
+  month: number,
+  byDate: Map<string, UniverseSummary>,
+  todayIso: string,
+): string {
+  const firstDay = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const leadingBlanks = firstDay.getDay(); // 0 = Sunday
+  const cellsInMonth = daysInMonth;
+  const monthRecords = Array.from(byDate.entries()).filter(([d]) =>
+    d.startsWith(`${year}-${String(month + 1).padStart(2, "0")}-`),
+  );
+
+  const cells: string[] = [];
+  for (let i = 0; i < leadingBlanks; i++) {
+    cells.push(`<div class="gallery-cell empty"></div>`);
+  }
+  for (let day = 1; day <= cellsInMonth; day++) {
+    const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const summary = byDate.get(iso);
+    cells.push(renderCell(iso, day, summary, iso === todayIso));
+  }
+  // Pad to multiple of 7
+  while (cells.length % 7 !== 0) cells.push(`<div class="gallery-cell empty"></div>`);
+
   return `
-    <div class="gallery-cell" data-id="${s.id}">
-      <canvas class="gallery-mini" id="mini-${s.id}" width="120" height="100"></canvas>
-      <div class="gallery-date">${formatDate(s.date)}</div>
-      <div class="gallery-meta">${icon} ${formatGalaxy(galaxy)} · ⭐${s.star_count} · 🪐${s.planet_count}</div>
+    <div class="month-block">
+      <div class="month-head">
+        <h3>${year}년 ${MONTH_NAMES[month]}</h3>
+        <span class="meta">${monthRecords.length} UNIVERSES</span>
+      </div>
+      <div class="gallery-grid">${cells.join("")}</div>
     </div>
   `;
 }
 
-function formatDate(iso: string): string {
-  // ISO `YYYY-MM-DD` → `M/D`
-  const [, m, d] = iso.split("-");
-  return `${parseInt(m, 10)}/${parseInt(d, 10)}`;
+function renderCell(
+  iso: string,
+  day: number,
+  summary: UniverseSummary | undefined,
+  isToday: boolean,
+): string {
+  if (!summary) {
+    return `<div class="gallery-cell empty"><span class="day-label">${day}</span></div>`;
+  }
+  const isBlack = summary.galaxy_type === "black_hole" || summary.star_count === 0;
+  const todayCls = isToday ? "today" : "";
+  const blackCls = isBlack ? "blackhole" : "";
+  const badge = summary.planet_count > 0 ? `<span class="badge"></span>` : "";
+  // Per design: cell is a tiny solid square (or blackhole) — no in-cell canvas.
+  // Star density inside a 40px square is unreadable; the fullscreen overlay
+  // shows the actual universe.
+  return `
+    <div class="gallery-cell ${blackCls} ${todayCls}" data-id="${summary.id}" data-date="${iso}">
+      ${badge}
+      <span class="day-label">${day}</span>
+    </div>
+  `;
 }
 
-function formatGalaxy(g: string): string {
-  return GALAXY_LABEL[g] ?? g;
+function attachCellClicks() {
+  document.querySelectorAll<HTMLElement>(".gallery-cell:not(.empty)").forEach((cell) => {
+    cell.addEventListener("click", () => {
+      const id = cell.dataset.id;
+      const date = cell.dataset.date;
+      if (!id || !date) return;
+      const summary = lastSummaries.find((s) => s.id === parseInt(id, 10));
+      if (summary) void openOverlay(summary, date);
+    });
+  });
 }
 
-/**
- * Draw a tiny preview into the mini-canvas without going through the full
- * UniverseRenderer (which is sized 480×400). We only need stars + nebulae
- * sketched onto a 120×100 strip.
- */
-async function drawMini(summary: UniverseSummary) {
-  const canvas = document.getElementById(`mini-${summary.id}`) as HTMLCanvasElement | null;
-  if (!canvas) return;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  ctx.fillStyle = "#0a0a14";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+async function openOverlay(summary: UniverseSummary, dateIso: string) {
+  const overlay = document.getElementById("gal-overlay");
+  const frame = document.getElementById("gal-overlay-frame");
+  if (!overlay || !frame) return;
 
-  // Lazy-load the per-universe payload only when the mini is visible. Cells
-  // are few enough that we can afford one query each.
+  frame.innerHTML = `
+    <canvas id="gal-canvas"></canvas>
+    <div class="info-strip">
+      <span class="date">${dateIso}</span>
+      <span class="meta">⭐ ${summary.star_count} · 🪐 ${summary.planet_count}</span>
+    </div>
+  `;
+  overlay.hidden = false;
+
   try {
     const payload = await invoke<ReadOnlyUniverse | null>("get_universe_by_id", {
       universeId: summary.id,
     });
     if (!payload) return;
-    drawMiniInto(ctx, canvas.width, canvas.height, payload);
-  } catch (e) {
-    console.error("mini draw:", e);
-  }
-}
-
-function drawMiniInto(
-  ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  payload: ReadOnlyUniverse,
-) {
-  const scaleX = w / DISPLAY_W;
-  const scaleY = h / DISPLAY_H;
-  const view = makeView();
-
-  // Nebulae as low-opacity blobs.
-  for (const n of payload.nebulae) {
-    const s = worldToScreen(view, n.position_x, n.position_y);
-    const r = (n.radius / 2) * scaleX; // ratio matches camera's SCALE constant
-    const grad = ctx.createRadialGradient(s.x * scaleX, s.y * scaleY, 0, s.x * scaleX, s.y * scaleY, r);
-    grad.addColorStop(0, `${n.color} ${n.opacity * 0.6})`);
-    grad.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(s.x * scaleX, s.y * scaleY, r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Stars as tiny dots. Decimate at high counts so the preview stays readable.
-  const decimate = Math.max(1, Math.ceil(payload.stars.length / 200));
-  for (let i = 0; i < payload.stars.length; i += decimate) {
-    const star = payload.stars[i];
-    const s = worldToScreen(view, star.position_x, star.position_y);
-    const r = Math.max(0.5, star.radius * 0.5 * scaleX);
-    ctx.fillStyle = `rgba(${star.color_r},${star.color_g},${star.color_b},${star.opacity})`;
-    ctx.beginPath();
-    ctx.arc(s.x * scaleX, s.y * scaleY, r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Planets as small filled circles.
-  for (const p of payload.planets) {
-    const s = worldToScreen(view, p.position_x, p.position_y);
-    ctx.fillStyle = "rgba(255, 211, 130, 0.9)";
-    ctx.beginPath();
-    ctx.arc(s.x * scaleX, s.y * scaleY, 2.5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
-
-async function openDetail(s: UniverseSummary) {
-  try {
-    const payload = await invoke<ReadOnlyUniverse | null>("get_universe_by_id", {
-      universeId: s.id,
-    });
-    if (!payload) {
-      openModal(`<div class="modal-title">우주를 찾을 수 없음</div>`);
-      return;
-    }
-    const constellations = payload.constellations.length;
-    const galaxy = payload.universe.galaxy_type ?? "(진행 중)";
-
-    openModal(`
-      <div class="modal-title">${formatDate(payload.universe.date)} 우주</div>
-      <div class="modal-subtitle">${formatGalaxy(galaxy)}</div>
-      <canvas id="modal-canvas" width="${DISPLAY_W}" height="${DISPLAY_H}"></canvas>
-      <div class="modal-stat">⭐ 별: ${payload.stars.length}</div>
-      <div class="modal-stat">🪐 행성: ${payload.planets.length}</div>
-      <div class="modal-stat">✦ 별자리: ${constellations}</div>
-    `);
-    // Render the full universe into the modal canvas. Re-use the main
-    // renderer's drawing logic on a fresh canvas. Display-shrink via CSS so
-    // the 480-wide canvas fits comfortably inside the 480-wide popover modal.
-    const canvas = document.getElementById("modal-canvas") as HTMLCanvasElement | null;
+    const canvas = document.getElementById("gal-canvas") as HTMLCanvasElement | null;
     if (!canvas) return;
     const renderer = new UniverseRenderer(canvas);
-    canvas.style.width = "360px";
-    canvas.style.height = "300px";
+    // Renderer constructor pins canvas.style.{width,height} to 480/400 px.
+    // Override AFTER construction so the canvas fluid-scales into the frame
+    // (which is roughly 440×560 inside the popover).
+    canvas.style.width = "auto";
+    canvas.style.height = "100%";
+    canvas.style.maxWidth = "100%";
+    canvas.style.display = "block";
+    canvas.style.margin = "0 auto";
     renderer.request(makeView(), {
       stars: payload.stars,
       planets: payload.planets,
@@ -231,7 +276,13 @@ async function openDetail(s: UniverseSummary) {
       hoveredStarId: null,
     });
   } catch (e) {
-    console.error("gallery detail:", e);
-    openModal(`<div class="modal-title">로딩 실패</div>`);
+    console.error("overlay:", e);
   }
+}
+
+function closeOverlay() {
+  const overlay = document.getElementById("gal-overlay");
+  const frame = document.getElementById("gal-overlay-frame");
+  if (overlay) overlay.hidden = true;
+  if (frame) frame.innerHTML = "";
 }

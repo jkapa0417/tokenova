@@ -81,6 +81,7 @@ pub fn discover_for_session(
         position_x: px,
         position_y: py,
         user_note: None,
+        acknowledged_at: None,
     };
     let inserted_id = db.insert_planet(&planet)?;
     db.codex_record_discovery(spec.key, rarity, Utc::now())?;
@@ -230,6 +231,7 @@ mod tests {
                 position_x: x,
                 position_y: y,
                 user_note: None,
+                acknowledged_at: None,
             });
         }
     }

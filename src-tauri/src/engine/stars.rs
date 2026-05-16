@@ -58,16 +58,18 @@ pub fn plan_star_additions(
 }
 
 /// Materialize the next `count` stars for the given universe and persist them.
-/// Returns the inserted stars in order.
+/// Returns the inserted stars in order. Star positions follow the universe's
+/// `layout_shape` so the same seed renders the same shape every day.
 pub fn add_stars(db: &Arc<Db>, universe: &Universe, count: u32) -> Result<Vec<Star>> {
     if count == 0 {
         return Ok(vec![]);
     }
+    let layout = universe.layout_shape.as_deref().unwrap_or("scattered");
     let mut out = Vec::with_capacity(count as usize);
     let start_idx = universe.star_count;
     for offset in 0..count {
         let star_index = start_idx + offset;
-        let blueprint = synth_star(universe.seed, star_index);
+        let blueprint = synth_star_for_layout(universe.seed, star_index, layout);
         let id = db.insert_star(universe.id, &blueprint)?;
         out.push(Star {
             id,
@@ -99,12 +101,24 @@ pub struct StarBlueprint {
 }
 
 /// Deterministic per-universe star generator: mix the universe seed with the
-/// star's index so re-running yields the exact same star.
+/// star's index so re-running yields the exact same star. Uses `scattered`
+/// layout — for layout-aware placement call [`synth_star_for_layout`].
+/// Kept around for the existing test suite.
+#[cfg(test)]
 pub fn synth_star(universe_seed: i64, star_index: u32) -> StarBlueprint {
+    synth_star_for_layout(universe_seed, star_index, "scattered")
+}
+
+/// Star with layout-aware position. The size/color/opacity rolls are kept
+/// identical to `synth_star` so existing tests still pass.
+pub fn synth_star_for_layout(universe_seed: i64, star_index: u32, layout: &str) -> StarBlueprint {
     let mut rng = star_rng(universe_seed, star_index);
 
-    let x = rng.gen::<f32>() * UNIVERSE_W;
-    let y = rng.gen::<f32>() * UNIVERSE_H;
+    // Position first — peel two `gen::<f32>()` calls to feed the layout fn so
+    // the size/color buckets below stay seed-stable across layouts.
+    let pos_u: f32 = rng.gen();
+    let pos_v: f32 = rng.gen();
+    let (x, y) = place_for_layout(layout, pos_u, pos_v, star_index, universe_seed);
 
     // 70 / 25 / 5 size distribution (small / mid / large)
     let size_roll: f32 = rng.gen();
@@ -138,6 +152,117 @@ pub fn synth_star(universe_seed: i64, star_index: u32) -> StarBlueprint {
         opacity,
         is_big: radius > 3.0,
     }
+}
+
+/// Map two uniform [0,1) samples + star index into world coordinates following
+/// the universe's `layout_shape`. Layouts:
+///
+/// - `scattered` (default): uniform across the canvas
+/// - `spiral`: two logarithmic arms with a bulge
+/// - `elliptical`: gaussian-weighted ellipse, dense center
+/// - `irregular`: scattered with a few off-center hotspots
+/// - `dual_cluster`: two gaussian blobs side by side
+/// - `core_heavy`: heavy central concentration, sparse halo
+fn place_for_layout(
+    layout: &str,
+    u: f32,
+    v: f32,
+    star_index: u32,
+    universe_seed: i64,
+) -> (f32, f32) {
+    let cx = UNIVERSE_W * 0.5;
+    let cy = UNIVERSE_H * 0.5;
+
+    match layout {
+        "spiral" => {
+            // Two-arm logarithmic spiral with random jitter.
+            let arm = (star_index % 2) as f32; // 0 or 1
+            let t = u * 1.0; // 0..1 along the arm
+            let theta = arm * std::f32::consts::PI + t * 3.2 * std::f32::consts::PI;
+            let r = (0.06 + t * 0.42) * UNIVERSE_W;
+            // Add radial + angular jitter so it doesn't look mechanical.
+            let jitter_r = (v - 0.5) * UNIVERSE_W * 0.04;
+            let jitter_a = (sub_rng(universe_seed, star_index, 0x11) - 0.5) * 0.35;
+            let a = theta + jitter_a;
+            let rr = r + jitter_r;
+            let x = cx + a.cos() * rr;
+            let y = cy + a.sin() * rr * 0.78; // slight inclination
+            clamp_to_canvas(x, y)
+        }
+        "elliptical" => {
+            // Gaussian-ish ellipse via Box-Muller-lite from two uniforms.
+            let r = box_muller(u, v) * UNIVERSE_W * 0.16;
+            let theta = sub_rng(universe_seed, star_index, 0x22) * std::f32::consts::TAU;
+            let x = cx + theta.cos() * r * 1.4;
+            let y = cy + theta.sin() * r;
+            clamp_to_canvas(x, y)
+        }
+        "irregular" => {
+            // 70% uniform, 30% near one of three off-center hotspots.
+            if sub_rng(universe_seed, star_index, 0x33) < 0.30 {
+                let hotspot_idx = (sub_rng(universe_seed, star_index, 0x44) * 3.0) as u32 % 3;
+                let (hx, hy) = match hotspot_idx {
+                    0 => (UNIVERSE_W * 0.28, UNIVERSE_H * 0.34),
+                    1 => (UNIVERSE_W * 0.74, UNIVERSE_H * 0.42),
+                    _ => (UNIVERSE_W * 0.46, UNIVERSE_H * 0.74),
+                };
+                let r = box_muller(u, v) * UNIVERSE_W * 0.10;
+                let theta = sub_rng(universe_seed, star_index, 0x55) * std::f32::consts::TAU;
+                clamp_to_canvas(hx + theta.cos() * r, hy + theta.sin() * r)
+            } else {
+                (u * UNIVERSE_W, v * UNIVERSE_H)
+            }
+        }
+        "dual_cluster" => {
+            let left = sub_rng(universe_seed, star_index, 0x66) < 0.5;
+            let center_x = if left {
+                UNIVERSE_W * 0.32
+            } else {
+                UNIVERSE_W * 0.68
+            };
+            let center_y = UNIVERSE_H * 0.5;
+            let r = box_muller(u, v) * UNIVERSE_W * 0.13;
+            let theta = sub_rng(universe_seed, star_index, 0x77) * std::f32::consts::TAU;
+            clamp_to_canvas(center_x + theta.cos() * r, center_y + theta.sin() * r)
+        }
+        "core_heavy" => {
+            // r distribution biased toward 0 by squaring.
+            let r_norm = u * u;
+            let r = r_norm * UNIVERSE_W * 0.45;
+            let theta = v * std::f32::consts::TAU;
+            clamp_to_canvas(cx + theta.cos() * r, cy + theta.sin() * r)
+        }
+        _ => {
+            // "scattered" (default): uniform.
+            (u * UNIVERSE_W, v * UNIVERSE_H)
+        }
+    }
+}
+
+fn sub_rng(seed: i64, index: u32, salt: u64) -> f32 {
+    // Tiny per-(seed, index, salt) deterministic float in [0,1) without
+    // perturbing the main star RNG cursor.
+    let mut x = (seed as u64)
+        .wrapping_add((index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15))
+        .wrapping_add(salt.wrapping_mul(0xBF58_476D_1CE4_E5B9));
+    x ^= x >> 30;
+    x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
+    x ^= x >> 31;
+    ((x >> 32) as f32) / (u32::MAX as f32)
+}
+
+/// Approximation of a Gaussian using two uniforms (Box-Muller core).
+/// Returned value is roughly N(0,1), then taken absolute so we get a
+/// non-negative radial magnitude.
+fn box_muller(u: f32, v: f32) -> f32 {
+    let u_safe = (u.max(1e-6)).ln();
+    let r = (-2.0 * u_safe).sqrt();
+    let theta = std::f32::consts::TAU * v;
+    (r * theta.cos()).abs()
+}
+
+fn clamp_to_canvas(x: f32, y: f32) -> (f32, f32) {
+    (x.clamp(0.0, UNIVERSE_W), y.clamp(0.0, UNIVERSE_H))
 }
 
 fn star_rng(universe_seed: i64, star_index: u32) -> Pcg32 {

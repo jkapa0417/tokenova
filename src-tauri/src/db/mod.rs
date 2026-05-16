@@ -13,7 +13,7 @@ use crate::engine::types::{
 };
 
 const SCHEMA_SQL: &str = include_str!("schema.sql");
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenEvent {
@@ -75,21 +75,29 @@ impl Db {
                 row.get(0)
             })
             .optional()?;
-        match current {
-            None => {
-                conn.execute(
-                    "INSERT INTO schema_version (version) VALUES (?1)",
-                    params![SCHEMA_VERSION],
-                )?;
+        let from_version = current.unwrap_or(0);
+
+        // v1 → v2: add `cluster_name` to universes, `acknowledged_at` to planets.
+        // SQLite has no `ADD COLUMN IF NOT EXISTS`, so check pragma first.
+        if from_version < 2 {
+            if !column_exists(&conn, "universes", "cluster_name")? {
+                conn.execute_batch("ALTER TABLE universes ADD COLUMN cluster_name TEXT;")?;
             }
-            Some(v) if v < SCHEMA_VERSION => {
-                // Future migrations go here.
-                conn.execute(
-                    "UPDATE schema_version SET version = ?1",
-                    params![SCHEMA_VERSION],
-                )?;
+            if !column_exists(&conn, "planets", "acknowledged_at")? {
+                conn.execute_batch("ALTER TABLE planets ADD COLUMN acknowledged_at TEXT;")?;
             }
-            _ => {}
+        }
+
+        if current.is_none() {
+            conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?1)",
+                params![SCHEMA_VERSION],
+            )?;
+        } else if from_version < SCHEMA_VERSION {
+            conn.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![SCHEMA_VERSION],
+            )?;
         }
         Ok(())
     }
@@ -239,7 +247,7 @@ impl Db {
         let result = conn
             .query_row(
                 "SELECT id, date, star_count, galaxy_type, seed, layout_shape, palette,
-                        created_at, finalized_at
+                        cluster_name, created_at, finalized_at
                  FROM universes WHERE date = ?1",
                 params![date.to_string()],
                 row_to_universe,
@@ -254,17 +262,20 @@ impl Db {
         seed: i64,
         layout_shape: &str,
         palette: &str,
+        cluster_name: &str,
         created_at: DateTime<Utc>,
     ) -> Result<Universe> {
         let conn = self.conn.lock().expect("db poisoned");
         conn.execute(
-            "INSERT INTO universes (date, star_count, seed, layout_shape, palette, created_at)
-             VALUES (?1, 0, ?2, ?3, ?4, ?5)",
+            "INSERT INTO universes
+                (date, star_count, seed, layout_shape, palette, cluster_name, created_at)
+             VALUES (?1, 0, ?2, ?3, ?4, ?5, ?6)",
             params![
                 date.to_string(),
                 seed,
                 layout_shape,
                 palette,
+                cluster_name,
                 created_at.to_rfc3339(),
             ],
         )?;
@@ -277,6 +288,7 @@ impl Db {
             seed,
             layout_shape: Some(layout_shape.to_string()),
             palette: Some(palette.to_string()),
+            cluster_name: Some(cluster_name.to_string()),
             created_at,
             finalized_at: None,
         })
@@ -310,7 +322,7 @@ impl Db {
         let result = conn
             .query_row(
                 "SELECT id, date, star_count, galaxy_type, seed, layout_shape, palette,
-                        created_at, finalized_at
+                        cluster_name, created_at, finalized_at
                  FROM universes WHERE id = ?1",
                 params![universe_id],
                 row_to_universe,
@@ -329,7 +341,7 @@ impl Db {
         let conn = self.conn.lock().expect("db poisoned");
         let mut sql = String::from(
             "SELECT id, date, star_count, galaxy_type, seed, layout_shape, palette,
-                    created_at, finalized_at
+                    cluster_name, created_at, finalized_at
              FROM universes",
         );
         let mut params_vec: Vec<String> = Vec::new();
@@ -401,8 +413,8 @@ impl Db {
         conn.execute(
             "INSERT INTO planets
                 (universe_id, planet_type, rarity, seed, discovered_at,
-                 triggering_session_id, position_x, position_y, user_note)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                 triggering_session_id, position_x, position_y, user_note, acknowledged_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 planet.universe_id,
                 planet.planet_type,
@@ -413,6 +425,7 @@ impl Db {
                 planet.position_x as f64,
                 planet.position_y as f64,
                 planet.user_note,
+                planet.acknowledged_at.map(|d| d.to_rfc3339()),
             ],
         )?;
         Ok(conn.last_insert_rowid())
@@ -422,11 +435,43 @@ impl Db {
         let conn = self.conn.lock().expect("db poisoned");
         let mut stmt = conn.prepare(
             "SELECT id, universe_id, planet_type, rarity, seed, discovered_at,
-                    triggering_session_id, position_x, position_y, user_note
+                    triggering_session_id, position_x, position_y, user_note, acknowledged_at
              FROM planets WHERE universe_id = ?1 ORDER BY discovered_at",
         )?;
         let rows = stmt.query_map(params![universe_id], row_to_planet)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// All planets across all universes that the user hasn't yet seen in the
+    /// discovery overlay. Used to populate the pending queue when the popover opens.
+    pub fn list_unacknowledged_planets(&self) -> Result<Vec<Planet>> {
+        let conn = self.conn.lock().expect("db poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT id, universe_id, planet_type, rarity, seed, discovered_at,
+                    triggering_session_id, position_x, position_y, user_note, acknowledged_at
+             FROM planets WHERE acknowledged_at IS NULL ORDER BY discovered_at",
+        )?;
+        let rows = stmt.query_map([], row_to_planet)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn acknowledge_planets(&self, planet_ids: &[i64], at: DateTime<Utc>) -> Result<usize> {
+        if planet_ids.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.conn.lock().expect("db poisoned");
+        let placeholders = vec!["?"; planet_ids.len()].join(",");
+        let sql = format!(
+            "UPDATE planets SET acknowledged_at = ?1 WHERE id IN ({placeholders}) AND acknowledged_at IS NULL"
+        );
+        let at_str = at.to_rfc3339();
+        let mut params_vec: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(1 + planet_ids.len());
+        params_vec.push(&at_str);
+        for id in planet_ids {
+            params_vec.push(id);
+        }
+        let changes = conn.execute(&sql, params_vec.as_slice())?;
+        Ok(changes)
     }
 
     /// Count of today's planets that contribute to the daily cap (mythic excluded).
@@ -622,12 +667,39 @@ fn row_to_token_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<TokenEvent> {
     })
 }
 
+fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Parse a datetime string from SQLite. Accepts:
+/// - RFC 3339 (`2026-05-16T20:16:52Z`, `2026-05-16T20:16:52.123+09:00`)
+/// - SQLite default (`2026-05-16 20:16:52`, no offset → assumed UTC)
+///
+/// SQLite's built-in `datetime('now')` returns the second form, so anyone who
+/// runs an ad-hoc UPDATE on a timestamp column needs to be readable too.
 fn parse_rfc3339(idx: usize, raw: &str) -> rusqlite::Result<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(raw)
-        .map(|d| d.with_timezone(&Utc))
-        .map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(idx, rusqlite::types::Type::Text, Box::new(e))
-        })
+    if let Ok(dt) = DateTime::parse_from_rfc3339(raw) {
+        return Ok(dt.with_timezone(&Utc));
+    }
+    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S") {
+        return Ok(naive.and_utc());
+    }
+    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S%.f") {
+        return Ok(naive.and_utc());
+    }
+    Err(rusqlite::Error::FromSqlConversionFailure(
+        idx,
+        rusqlite::types::Type::Text,
+        format!("unrecognized datetime: {raw}").into(),
+    ))
 }
 
 fn parse_naive_date(idx: usize, raw: &str) -> rusqlite::Result<NaiveDate> {
@@ -641,12 +713,12 @@ fn row_to_universe(row: &rusqlite::Row<'_>) -> rusqlite::Result<Universe> {
     let date = parse_naive_date(1, &date_raw)?;
     let galaxy_raw: Option<String> = row.get(3)?;
     let galaxy_type = galaxy_raw.as_deref().and_then(GalaxyType::from_str);
-    let created_raw: String = row.get(7)?;
-    let created_at = parse_rfc3339(7, &created_raw)?;
-    let finalized_raw: Option<String> = row.get(8)?;
+    let created_raw: String = row.get(8)?;
+    let created_at = parse_rfc3339(8, &created_raw)?;
+    let finalized_raw: Option<String> = row.get(9)?;
     let finalized_at = finalized_raw
         .as_deref()
-        .map(|s| parse_rfc3339(8, s))
+        .map(|s| parse_rfc3339(9, s))
         .transpose()?;
     Ok(Universe {
         id: row.get(0)?,
@@ -656,6 +728,7 @@ fn row_to_universe(row: &rusqlite::Row<'_>) -> rusqlite::Result<Universe> {
         seed: row.get(4)?,
         layout_shape: row.get(5)?,
         palette: row.get(6)?,
+        cluster_name: row.get(7)?,
         created_at,
         finalized_at,
     })
@@ -690,6 +763,11 @@ fn row_to_planet(row: &rusqlite::Row<'_>) -> rusqlite::Result<Planet> {
     })?;
     let discovered_raw: String = row.get(5)?;
     let discovered_at = parse_rfc3339(5, &discovered_raw)?;
+    let ack_raw: Option<String> = row.get(10)?;
+    let acknowledged_at = ack_raw
+        .as_deref()
+        .map(|s| parse_rfc3339(10, s))
+        .transpose()?;
     Ok(Planet {
         id: row.get(0)?,
         universe_id: row.get(1)?,
@@ -701,6 +779,7 @@ fn row_to_planet(row: &rusqlite::Row<'_>) -> rusqlite::Result<Planet> {
         position_x: row.get::<_, f64>(7)? as f32,
         position_y: row.get::<_, f64>(8)? as f32,
         user_note: row.get(9)?,
+        acknowledged_at,
     })
 }
 
