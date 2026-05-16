@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS universes (
     seed INTEGER NOT NULL,
     layout_shape TEXT,
     palette TEXT,
+    cluster_name TEXT,
     created_at TEXT NOT NULL,
     finalized_at TEXT
 );
@@ -72,7 +73,8 @@ CREATE TABLE IF NOT EXISTS planets (
     triggering_session_id INTEGER REFERENCES sessions (id) ON DELETE SET NULL,
     position_x REAL NOT NULL,
     position_y REAL NOT NULL,
-    user_note TEXT
+    user_note TEXT,
+    acknowledged_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_planets_universe ON planets (universe_id);

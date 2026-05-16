@@ -14,6 +14,28 @@ use crate::engine::types::{
 use crate::engine::Engine;
 
 #[tauri::command]
+pub async fn get_pending_discoveries(db: State<'_, Arc<Db>>) -> Result<Vec<Planet>, String> {
+    let db = db.inner().clone();
+    tokio::task::spawn_blocking(move || db.list_unacknowledged_planets().map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn acknowledge_planets(
+    db: State<'_, Arc<Db>>,
+    planet_ids: Vec<i64>,
+) -> Result<usize, String> {
+    let db = db.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        db.acknowledge_planets(&planet_ids, Utc::now())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub async fn get_today_total(db: State<'_, Arc<Db>>) -> Result<u64, String> {
     let db = db.inner().clone();
     tokio::task::spawn_blocking(move || {

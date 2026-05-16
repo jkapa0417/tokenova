@@ -12,7 +12,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use chrono::{Local, NaiveDate};
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tokio::sync::{broadcast, Mutex};
 use tokio::time::{sleep, Duration};
 
@@ -70,6 +70,7 @@ impl Engine {
         for key in &earned.0 {
             self.notifier
                 .achievement_earned(&self.app, achievements::display_name(key));
+            let _ = self.app.emit("achievement_earned", key);
         }
     }
 
@@ -160,7 +161,9 @@ impl Engine {
             if before < 100 && after >= 100 {
                 self.notifier.universe_milestone(&self.app, after);
             }
-            let _ = inserted; // Phase D will emit these to the frontend.
+            // Push the freshly inserted stars to the frontend so the canvas
+            // updates without waiting for the next poll.
+            let _ = self.app.emit("stars_added", &inserted);
         }
         state.leftover_tokens = outcome.leftover_tokens;
         state.today_tokens = state.today_tokens.saturating_add(total);
@@ -192,6 +195,9 @@ impl Engine {
                 .unwrap_or_else(|| planet.planet_type.clone());
             self.notifier
                 .planet_discovered(&self.app, &display, planet.rarity);
+            // Push to frontend so the discovery overlay can open immediately
+            // (only while the popover is actually showing — listen is no-op when closed).
+            let _ = self.app.emit("planet_discovered", planet);
         }
         Ok(())
     }

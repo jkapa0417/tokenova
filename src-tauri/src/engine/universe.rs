@@ -35,6 +35,55 @@ pub const PALETTES: &[&str] = &[
     "amber_warm",
 ];
 
+/// Korean adjective + constellation pool used to derive a deterministic
+/// per-universe cluster name. Examples:
+/// - "고요한 안드로메다"
+/// - "북쪽의 카시오페아"
+/// - "에리다누스의 새벽"
+const CLUSTER_ADJECTIVES: &[&str] = &[
+    "빛나는",
+    "잠든",
+    "고요한",
+    "춤추는",
+    "북쪽의",
+    "남쪽의",
+    "깨어난",
+    "어린",
+    "늙은",
+    "새벽의",
+    "황혼의",
+    "외로운",
+    "별빛",
+    "은빛",
+    "황금빛",
+    "어두운",
+    "푸른",
+    "붉은",
+];
+
+const CLUSTER_NOUNS: &[&str] = &[
+    "안드로메다",
+    "카시오페아",
+    "에리다누스",
+    "오리온",
+    "헤라클레스",
+    "백조",
+    "큰곰",
+    "사자",
+    "용",
+    "독수리",
+    "전갈",
+    "거문고",
+    "사냥개",
+    "고래",
+    "페가수스",
+    "센타우루스",
+    "처녀",
+    "물고기",
+];
+
+const CLUSTER_SUFFIXES: &[&str] = &["성단", "별자리", "은하", "성운", "회랑"];
+
 pub fn today_date_local() -> NaiveDate {
     Local::now().date_naive()
 }
@@ -85,9 +134,18 @@ pub fn get_or_create_today(db: &Arc<Db>) -> Result<Universe> {
     let seed = seed_from_date(date);
     let layout = pick_for_seed(seed ^ 0xA1B2_C3D4, LAYOUT_SHAPES);
     let palette = pick_for_seed(seed ^ 0xDEAD_BEEF, PALETTES);
-    let universe = db.create_universe(date, seed, layout, palette, Utc::now())?;
+    let cluster_name = generate_cluster_name(seed);
+    let universe = db.create_universe(date, seed, layout, palette, &cluster_name, Utc::now())?;
     nebula::populate_for_universe(db, &universe)?;
     Ok(universe)
+}
+
+/// Generate a deterministic Korean cluster name from a seed.
+pub fn generate_cluster_name(seed: i64) -> String {
+    let adj = pick_for_seed(seed ^ 0x5A5A_C3C3, CLUSTER_ADJECTIVES);
+    let noun = pick_for_seed(seed ^ 0x1357_9BDF, CLUSTER_NOUNS);
+    let suffix = pick_for_seed(seed ^ 0x0246_8ACE, CLUSTER_SUFFIXES);
+    format!("{adj} {noun} {suffix}")
 }
 
 /// Mark a universe as finalized for the day, stamping its galaxy_type.

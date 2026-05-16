@@ -41,6 +41,24 @@
 
 GitHub Releases 페이지에서 OS별 인스톨러를 받으세요. (베타 기간 중 — 정식 릴리즈 준비 중)
 
+### macOS 첫 실행 안내
+
+DMG는 비용 문제로 Apple 코드 서명이 빠진 상태로 배포됩니다. 처음 실행할 때 macOS Gatekeeper가 차단할 수 있어요:
+
+1. DMG를 열고 `Tokenova.app` 을 `/Applications/` 폴더로 드래그
+2. 처음 실행을 시도하면 "확인되지 않은 개발자" 경고가 뜨면서 차단됨
+3. **시스템 설정 → 개인정보 보호 및 보안** 으로 이동
+4. 맨 아래쪽에 "Tokenova가 차단되었습니다" 항목 → **그래도 열기** 클릭
+5. 한 번 더 확인 다이얼로그가 뜨면 **열기** 선택
+
+이 절차는 처음 한 번만 필요합니다. 이후 업데이트나 재실행은 정상 동작.
+
+> 터미널을 선호한다면: `xattr -dr com.apple.quarantine /Applications/Tokenova.app`
+
+### Windows 첫 실행 안내
+
+Microsoft SmartScreen이 "Windows가 PC 보호" 다이얼로그를 띄울 수 있습니다. **추가 정보 → 실행** 으로 진행하면 됩니다.
+
 ## 빌드 (개발자용)
 
 ### 사전 요구

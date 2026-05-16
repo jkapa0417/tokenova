@@ -112,6 +112,9 @@ pub struct Universe {
     pub seed: i64,
     pub layout_shape: Option<String>,
     pub palette: Option<String>,
+    /// Deterministic, friendly Korean cluster name derived from the seed.
+    /// Examples: "에리다누스의 새벽", "고요한 안드로메다".
+    pub cluster_name: Option<String>,
     pub created_at: DateTime<Utc>,
     pub finalized_at: Option<DateTime<Utc>>,
 }
@@ -143,6 +146,9 @@ pub struct Planet {
     pub position_x: f32,
     pub position_y: f32,
     pub user_note: Option<String>,
+    /// `None` until the user has dismissed the discovery overlay for this planet.
+    /// Populated by the `acknowledge_planets` command.
+    pub acknowledged_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
