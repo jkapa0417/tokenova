@@ -1,0 +1,146 @@
+//! Daily universe lifecycle.
+//!
+//! - Each local-time day maps 1:1 to a row in `universes` keyed by date.
+//! - `get_or_create_today` returns the active row, generating its seed,
+//!   layout shape, palette, and nebulae on first creation.
+//! - `finalize` is called at local midnight to lock the previous universe
+//!   (set `galaxy_type` and `finalized_at`) and the next call to
+//!   `get_or_create_today` opens a fresh one for the new date.
+
+use std::sync::Arc;
+
+use anyhow::Result;
+use chrono::{DateTime, Datelike, Local, NaiveDate, Utc};
+
+use crate::db::Db;
+use crate::engine::nebula;
+use crate::engine::types::{GalaxyType, Universe};
+
+/// Six possible large-scale layout shapes. Picked deterministically per universe.
+pub const LAYOUT_SHAPES: &[&str] = &[
+    "spiral",
+    "elliptical",
+    "irregular",
+    "dual_cluster",
+    "scattered",
+    "core_heavy",
+];
+
+/// High-level palette tags. Used for tinting choices in Phase D rendering.
+pub const PALETTES: &[&str] = &[
+    "violet_dawn",
+    "cyan_deep",
+    "rose_dust",
+    "emerald_pool",
+    "amber_warm",
+];
+
+pub fn today_date_local() -> NaiveDate {
+    Local::now().date_naive()
+}
+
+/// Seconds until the next local-time midnight (always strictly positive).
+pub fn seconds_until_local_midnight(now: DateTime<Local>) -> i64 {
+    let tomorrow = now.date_naive().succ_opt().expect("date overflow");
+    let next_midnight = tomorrow
+        .and_hms_opt(0, 0, 0)
+        .expect("midnight is valid")
+        .and_local_timezone(Local)
+        .earliest()
+        .expect("local midnight is unambiguous outside DST forward jumps");
+    let diff = next_midnight - now;
+    diff.num_seconds().max(1)
+}
+
+/// Compute a deterministic seed from a calendar date. Stable across processes
+/// so the same day produces the same universe layout if it's regenerated.
+fn seed_from_date(date: NaiveDate) -> i64 {
+    // Mix year/month/day with a couple of large primes — plenty for our scale.
+    let y = date.year() as i64;
+    let m = date.month() as i64;
+    let d = date.day() as i64;
+    y.wrapping_mul(1_000_003)
+        ^ m.wrapping_mul(2_654_435_761)
+        ^ d.wrapping_mul(2_246_822_519)
+        ^ 0x9E37_79B9_7F4A_7C15u64 as i64
+}
+
+fn pick_for_seed<T: Copy>(seed: i64, options: &[T]) -> T {
+    // Splitmix-style mixing then modulo. Stable across runs.
+    let mut x = seed as u64;
+    x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    x ^= x >> 31;
+    options[(x as usize) % options.len()]
+}
+
+/// Get today's universe, creating it (and its nebulae) on first call of the day.
+pub fn get_or_create_today(db: &Arc<Db>) -> Result<Universe> {
+    let date = today_date_local();
+    if let Some(existing) = db.find_universe_by_date(date)? {
+        return Ok(existing);
+    }
+
+    let seed = seed_from_date(date);
+    let layout = pick_for_seed(seed ^ 0xA1B2_C3D4, LAYOUT_SHAPES);
+    let palette = pick_for_seed(seed ^ 0xDEAD_BEEF, PALETTES);
+    let universe = db.create_universe(date, seed, layout, palette, Utc::now())?;
+    nebula::populate_for_universe(db, &universe)?;
+    Ok(universe)
+}
+
+/// Mark a universe as finalized for the day, stamping its galaxy_type.
+pub fn finalize(db: &Arc<Db>, universe: &Universe) -> Result<GalaxyType> {
+    let galaxy = GalaxyType::classify(universe.star_count);
+    db.finalize_universe(universe.id, galaxy, Utc::now())?;
+    Ok(galaxy)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveDate;
+
+    #[test]
+    fn seed_is_stable_per_date() {
+        let d = NaiveDate::from_ymd_opt(2026, 5, 17).unwrap();
+        assert_eq!(seed_from_date(d), seed_from_date(d));
+    }
+
+    #[test]
+    fn seeds_differ_per_date() {
+        let d1 = NaiveDate::from_ymd_opt(2026, 5, 17).unwrap();
+        let d2 = NaiveDate::from_ymd_opt(2026, 5, 18).unwrap();
+        assert_ne!(seed_from_date(d1), seed_from_date(d2));
+    }
+
+    #[test]
+    fn pick_for_seed_is_deterministic() {
+        let seed = 12345i64;
+        let a = pick_for_seed(seed, LAYOUT_SHAPES);
+        let b = pick_for_seed(seed, LAYOUT_SHAPES);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn next_local_midnight_is_positive() {
+        let now = Local::now();
+        assert!(seconds_until_local_midnight(now) > 0);
+        assert!(seconds_until_local_midnight(now) <= 24 * 3600);
+    }
+
+    #[test]
+    fn galaxy_classification_thresholds() {
+        assert_eq!(GalaxyType::classify(0), GalaxyType::BlackHole);
+        assert_eq!(GalaxyType::classify(1), GalaxyType::Nebula);
+        assert_eq!(GalaxyType::classify(30), GalaxyType::Nebula);
+        assert_eq!(GalaxyType::classify(31), GalaxyType::Cluster);
+        assert_eq!(GalaxyType::classify(100), GalaxyType::Cluster);
+        assert_eq!(GalaxyType::classify(101), GalaxyType::Galaxy);
+        assert_eq!(GalaxyType::classify(300), GalaxyType::Galaxy);
+        assert_eq!(GalaxyType::classify(301), GalaxyType::MegaGalaxy);
+        assert_eq!(GalaxyType::classify(999), GalaxyType::MegaGalaxy);
+        assert_eq!(GalaxyType::classify(1000), GalaxyType::SuperCluster);
+    }
+}
