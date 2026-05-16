@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tokenova</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <main id="app">
+      <nav class="tabs" id="tabs">
+        <button class="tab" data-tab="today">Today</button>
+        <button class="tab" data-tab="codex">Codex</button>
+        <button class="tab" data-tab="achievements">업적</button>
+        <button class="tab" data-tab="gallery">Gallery</button>
+      </nav>
+
+      <section class="view" data-view="today" hidden>
+        <canvas id="universe-canvas"></canvas>
+        <div id="stats-bar">
+          <div class="stats-row stats-primary">
+            <span class="stats-tokens" id="s-tokens">—</span>
+            <span class="stats-stars" id="s-stars"></span>
+            <span class="stats-galaxy" id="s-galaxy"></span>
+          </div>
+          <div class="stats-row stats-secondary">
+            <span id="s-session" class="stats-session"></span>
+            <span id="s-constellation" class="stats-const"></span>
+          </div>
+          <div class="stats-hint" id="s-hint">스크롤: 줌 · 드래그: 이동 · 별 클릭: 별자리</div>
+        </div>
+      </section>
+
+      <section class="view" data-view="codex" hidden>
+        <div class="codex-summary" id="codex-summary">로딩…</div>
+        <div class="codex-content" id="codex-content"></div>
+      </section>
+
+      <section class="view" data-view="achievements" hidden>
+        <ul class="ach-list" id="ach-list">
+          <li class="ach-empty">로딩…</li>
+        </ul>
+      </section>
+
+      <section class="view" data-view="gallery" hidden>
+        <div class="gallery-controls">
+          <button class="range-btn" data-range="week">1주</button>
+          <button class="range-btn" data-range="month">1개월</button>
+          <button class="range-btn" data-range="all">전체</button>
+        </div>
+        <div class="gallery-grid" id="gallery-grid"></div>
+      </section>
+
+      <div class="modal-backdrop" id="modal-backdrop" hidden>
+        <div class="modal" id="modal">
+          <button class="modal-close" id="modal-close" aria-label="닫기">×</button>
+          <div class="modal-body" id="modal-body"></div>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>
