@@ -202,6 +202,11 @@ impl Engine {
             // Push to frontend so the discovery overlay can open immediately
             // (only while the popover is actually showing — listen is no-op when closed).
             let _ = self.app.emit("planet_discovered", planet);
+            // Swap the tray icon to the gold-dot variant so the user sees an
+            // unread indicator even when the popover is closed. The icon
+            // reverts in `acknowledge_planets` once the discovery queue is
+            // cleared.
+            let _ = crate::set_tray_discovery(&self.app, true);
         }
         Ok(())
     }

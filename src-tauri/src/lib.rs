@@ -14,9 +14,10 @@ mod dev_console;
 use std::sync::{Arc, Mutex};
 
 use tauri::{
-    menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    image::Image,
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent, TrayIconId},
+    AppHandle, Emitter, Manager,
 };
 use tauri_plugin_positioner::{Position, WindowExt};
 use tokio::sync::broadcast;
@@ -180,16 +181,61 @@ pub fn run() {
 
             app.manage(events_tx);
 
-            // --- Tray icon + popover toggle (Phase A) ---
-            let quit_item = MenuItem::with_id(app, "quit", "Quit Tokenova", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&quit_item])?;
-            let _tray = TrayIconBuilder::with_id("tokenova-tray")
-                .icon(app.default_window_icon().unwrap().clone())
+            // --- Tray icon + popover toggle ---
+            //
+            // Platform-specific icon: macOS gets a monochrome silhouette that
+            // the system tints automatically for light/dark menubars; Windows
+            // and Linux get the full-colour planet-with-gold-ring so the brand
+            // mark stays identifiable in the system tray.
+            let tray_icon = Image::from_bytes(default_tray_bytes())?;
+            let open_i = MenuItem::with_id(app, "open", "Open Tokenova", true, None::<&str>)?;
+            let today_i = MenuItem::with_id(app, "today", "Today", true, None::<&str>)?;
+            let codex_i = MenuItem::with_id(app, "codex", "Codex", true, None::<&str>)?;
+            let achievements_i =
+                MenuItem::with_id(app, "achievements", "Achievements", true, None::<&str>)?;
+            let gallery_i = MenuItem::with_id(app, "gallery", "Gallery", true, None::<&str>)?;
+            let settings_i = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+            let sep = PredefinedMenuItem::separator(app)?;
+            let quit_i = MenuItem::with_id(
+                app,
+                "quit",
+                "Quit Tokenova",
+                true,
+                Some("CmdOrCtrl+Q"),
+            )?;
+            let menu = Menu::with_items(
+                app,
+                &[
+                    &open_i,
+                    &sep,
+                    &today_i,
+                    &codex_i,
+                    &achievements_i,
+                    &gallery_i,
+                    &settings_i,
+                    &sep,
+                    &quit_i,
+                ],
+            )?;
+            let tray = TrayIconBuilder::with_id("tokenova-tray")
+                .icon(tray_icon)
+                // No-op on Windows/Linux. On macOS this tells AppKit the PNG
+                // is a template image — black silhouette gets auto-tinted to
+                // match the menubar accent + dark mode.
+                .icon_as_template(true)
                 .menu(&menu)
                 .show_menu_on_left_click(false)
+                .tooltip("Tokenova")
                 .on_menu_event(|app, event| {
-                    if event.id.as_ref() == "quit" {
-                        app.exit(0);
+                    match event.id.as_ref() {
+                        "quit" => app.exit(0),
+                        // Route through the popover by emitting a `tray-route`
+                        // event the frontend listens to. Show + focus the
+                        // window first so a hidden tray-app surfaces too.
+                        id @ ("open" | "today" | "codex" | "achievements" | "gallery" | "settings") => {
+                            show_and_route(app, id);
+                        }
+                        _ => {}
                     }
                 })
                 .on_tray_icon_event(|tray, event| {
@@ -204,6 +250,17 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+            // Stash the tray id so `set_tray_discovery` can find it later
+            // when a new planet shows up and we need to swap the icon to the
+            // gold-dot variant.
+            app.manage(TrayHandle { id: tray.id().clone() });
+
+            // If the app was closed with unacknowledged discoveries still in
+            // the queue, surface them by starting in the discovery state.
+            let pending = db.list_unacknowledged_planets().unwrap_or_default();
+            if !pending.is_empty() {
+                let _ = set_tray_discovery(&app.handle().clone(), true);
+            }
 
             Ok(())
         })
@@ -231,5 +288,67 @@ fn toggle_popover(app: &tauri::AppHandle) {
             tokio::time::sleep(std::time::Duration::from_millis(120)).await;
             let _ = win.set_focus();
         });
+    }
+}
+
+// ─── Tray icon assets — baked into the binary at compile time ───
+//
+// The bytes live in `src-tauri/icons/`. `include_bytes!` is platform-aware
+// only via the `#[cfg]` attribute on each constant.
+
+#[cfg(target_os = "macos")]
+const TRAY_DEFAULT_BYTES: &[u8] = include_bytes!("../icons/tray-mac.png");
+#[cfg(target_os = "macos")]
+const TRAY_DISCOVERY_BYTES: &[u8] = include_bytes!("../icons/tray-mac-discovery.png");
+
+#[cfg(not(target_os = "macos"))]
+const TRAY_DEFAULT_BYTES: &[u8] = include_bytes!("../icons/tray-win.png");
+#[cfg(not(target_os = "macos"))]
+const TRAY_DISCOVERY_BYTES: &[u8] = include_bytes!("../icons/tray-win-discovery.png");
+
+fn default_tray_bytes() -> &'static [u8] {
+    TRAY_DEFAULT_BYTES
+}
+
+fn discovery_tray_bytes() -> &'static [u8] {
+    TRAY_DISCOVERY_BYTES
+}
+
+/// Tray icon handle saved into managed state so the rest of the app can swap
+/// the icon (e.g. when a new planet is discovered).
+struct TrayHandle {
+    id: TrayIconId,
+}
+
+/// Swap the tray icon to the gold-dot "discovery" variant. Safe to call
+/// repeatedly; the same image is just re-applied.
+pub(crate) fn set_tray_discovery(app: &AppHandle, on: bool) -> tauri::Result<()> {
+    let Some(state) = app.try_state::<TrayHandle>() else {
+        return Ok(()); // setup hasn't finished yet
+    };
+    let Some(tray) = app.tray_by_id(&state.id) else {
+        return Ok(());
+    };
+    let bytes = if on {
+        discovery_tray_bytes()
+    } else {
+        default_tray_bytes()
+    };
+    tray.set_icon(Some(Image::from_bytes(bytes)?))?;
+    Ok(())
+}
+
+/// Show + focus the main popover, then emit a `tray-route` event the
+/// frontend listens for to switch tabs. Called from the right-click menu
+/// items (Today, Codex, Achievements, Gallery, Settings, Open).
+fn show_and_route(app: &AppHandle, route: &str) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.move_window(Position::TrayCenter);
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    // "open" means just surface the window — no tab change.
+    if route != "open" {
+        let _ = app.emit("tray-route", route);
     }
 }

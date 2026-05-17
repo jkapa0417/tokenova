@@ -24,16 +24,35 @@ pub async fn get_pending_discoveries(db: State<'_, Arc<Db>>) -> Result<Vec<Plane
 
 #[tauri::command]
 pub async fn acknowledge_planets(
+    app: tauri::AppHandle,
     db: State<'_, Arc<Db>>,
     planet_ids: Vec<i64>,
 ) -> Result<usize, String> {
-    let db = db.inner().clone();
-    tokio::task::spawn_blocking(move || {
-        db.acknowledge_planets(&planet_ids, Utc::now())
+    let db_for_ack = db.inner().clone();
+    let acked = tokio::task::spawn_blocking(move || {
+        db_for_ack
+            .acknowledge_planets(&planet_ids, Utc::now())
             .map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+
+    // If the unread queue is empty after this ack, clear the gold-dot tray
+    // indicator so the icon goes back to its idle state.
+    let db_for_check = db.inner().clone();
+    let remaining = tokio::task::spawn_blocking(move || {
+        db_for_check
+            .list_unacknowledged_planets()
+            .map(|v| v.len())
+            .unwrap_or(0)
+    })
+    .await
+    .unwrap_or(0);
+    if remaining == 0 {
+        let _ = crate::set_tray_discovery(&app, false);
+    }
+
+    Ok(acked)
 }
 
 #[tauri::command]

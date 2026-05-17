@@ -6,6 +6,7 @@
 // - lifecycle hooks per view (activate/deactivate)
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 import { activateAchievements } from "./views/achievements";
 import {
@@ -182,6 +183,13 @@ window.addEventListener("DOMContentLoaded", () => {
     void refreshTokenPill();
     setInterval(() => void refreshTokenPill(), TOKEN_PILL_INTERVAL_MS);
     setTimeout(() => void startUpdateCheck(), 3000);
+
+    // Tray right-click menu items emit `tray-route` with a tab key. Switch to
+    // that tab so the user lands directly on the section they picked.
+    void listen<string>("tray-route", (event) => {
+      const target = event.payload;
+      if (isTabKey(target)) void switchTab(target);
+    });
   })();
 });
 
