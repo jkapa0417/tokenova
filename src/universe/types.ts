@@ -44,6 +44,8 @@ export interface Planet {
   position_y: number;
   discovered_at?: string;
   acknowledged_at?: string | null;
+  /** Session that ended with ≥ 5,000 tokens and triggered this planet. */
+  triggering_session_id?: number | null;
 }
 
 export interface Nebula {

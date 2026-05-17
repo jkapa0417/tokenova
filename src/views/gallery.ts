@@ -43,11 +43,6 @@ interface ReadOnlyUniverse {
   constellations: Constellation[];
 }
 
-const MONTH_NAMES = [
-  "1월", "2월", "3월", "4월", "5월", "6월",
-  "7월", "8월", "9월", "10월", "11월", "12월",
-];
-
 // Tiny stroke-only ringed-planet glyph — same visual idea as the 🪐 emoji
 // but renders consistently on systems without a color-emoji font (notably
 // WSLg, which ships without `fonts-noto-color-emoji` by default).
@@ -58,9 +53,10 @@ const PLANET_GLYPH_SVG = `
   </svg>
 `;
 
-let currentRange: Range = "week";
+let currentRange: Range = "month";
 let wiredUp = false;
 let lastSummaries: UniverseSummary[] = [];
+let monthOffset = 0;          // 0 = current month, negative = earlier months
 
 export async function activateGallery(): Promise<void> {
   ensureWired();
@@ -100,11 +96,26 @@ async function loadRange(range: Range) {
   const $stats = document.getElementById("gallery-stats");
   const $content = document.getElementById("gallery-content");
   if (!$stats || !$content) return;
+  // All three new layouts care about the entire history for stats /
+  // heatmap; the week layout culls to 7 days client-side. Fetching once
+  // is simpler than range-specific backend filters.
   try {
-    const summaries = await invoke<UniverseSummary[]>("get_gallery", { range });
+    const summaries = await invoke<UniverseSummary[]>("get_gallery", { range: "all" });
     lastSummaries = summaries;
-    paintStats($stats, summaries);
-    $content.innerHTML = buildMonthBlocks(summaries, range);
+    // Stats card is rendered inside each view's own header so the page
+    // doesn't carry a duplicate row. Clear the legacy `#gallery-stats`.
+    $stats.innerHTML = "";
+    const today = new Date();
+    const byDate = indexByDate(summaries);
+    $content.innerHTML = "";
+    if (range === "week") {
+      $content.innerHTML = renderWeekView(byDate, today);
+    } else if (range === "month") {
+      $content.innerHTML = renderMonthView(byDate, today, monthOffset);
+      wireMonthNav(byDate, today);
+    } else {
+      $content.innerHTML = renderHeatmapView(byDate, today);
+    }
     attachCellClicks();
     primeCellThumbnails();
   } catch (e) {
@@ -113,136 +124,372 @@ async function loadRange(range: Range) {
   }
 }
 
-function paintStats(el: HTMLElement, summaries: UniverseSummary[]) {
-  const totalStars = summaries.reduce((acc, s) => acc + s.star_count, 0);
-  const totalPlanets = summaries.reduce((acc, s) => acc + s.planet_count, 0);
-  el.innerHTML = `
-    <div class="stat"><div class="num">${summaries.length}</div><div class="lbl">우주</div></div>
-    <div class="stat"><div class="num">${totalStars}</div><div class="lbl">총 별</div></div>
-    <div class="stat"><div class="num">${totalPlanets}</div><div class="lbl">총 행성</div></div>
+function indexByDate(summaries: UniverseSummary[]): Map<string, UniverseSummary> {
+  const m = new Map<string, UniverseSummary>();
+  for (const s of summaries) m.set(s.date, s);
+  return m;
+}
+
+function isoOf(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function sameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate();
+}
+
+function isBlackhole(s: UniverseSummary): boolean {
+  return s.galaxy_type === "black_hole" || s.star_count === 0;
+}
+
+const DOW_KO = ["일", "월", "화", "수", "목", "금", "토"];
+const NUM = new Intl.NumberFormat("ko-KR");
+
+// ───────────── Week view (horizontal 7-cell strip) ─────────────
+
+function renderWeekView(byDate: Map<string, UniverseSummary>, today: Date): string {
+  const days: { date: Date; u: UniverseSummary | undefined; isToday: boolean }[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    days.push({ date: d, u: byDate.get(isoOf(d)), isToday: i === 0 });
+  }
+  const stats = days.reduce(
+    (acc, day) => ({
+      universes: acc.universes + (day.u && day.u.star_count > 0 ? 1 : 0),
+      stars: acc.stars + (day.u?.star_count ?? 0),
+      planets: acc.planets + (day.u?.planet_count ?? 0),
+    }),
+    { universes: 0, stars: 0, planets: 0 },
+  );
+  const first = days[0].date;
+  const last = days[6].date;
+  const rangeLabel = `${first.getMonth() + 1}.${first.getDate()} – ${last.getMonth() + 1}.${last.getDate()}`;
+
+  const cells = days
+    .map((day) => {
+      const iso = isoOf(day.date);
+      const blank = !day.u;
+      const blackhole = day.u && isBlackhole(day.u);
+      const cls = ["week-cell"];
+      if (day.isToday) cls.push("today");
+      if (blank || blackhole) cls.push("no-thumb");
+      const dowCls = day.date.getDay() === 0 ? " sun" : "";
+      let thumb = "";
+      if (blackhole) {
+        thumb = `<div class="thumb-blackhole"></div>`;
+      } else if (day.u) {
+        thumb = `<canvas class="cell-thumb" data-thumb-id="${day.u.id}"></canvas>`;
+      } else {
+        thumb = `<div class="thumb-empty">·</div>`;
+      }
+      const meta = blackhole
+        ? `잠든 우주`
+        : day.u
+          ? `${day.u.star_count}<span class="dim">★</span>`
+          : `—`;
+      const dataAttrs = day.u
+        ? `data-id="${day.u.id}" data-date="${iso}"`
+        : "";
+      return `
+        <div class="${cls.join(" ")}" ${dataAttrs}>
+          <div class="week-dow${dowCls}">${DOW_KO[day.date.getDay()]}</div>
+          <div class="week-num">${day.date.getDate()}</div>
+          <div class="week-thumb">${thumb}</div>
+          <div class="week-meta">${meta}</div>
+        </div>
+      `;
+    })
+    .join("");
+
+  return `
+    <div class="week-header">
+      <div>
+        <div class="week-title">이번 주</div>
+        <div class="week-sub">${rangeLabel}</div>
+      </div>
+      <div class="week-stats">
+        <span><b>${stats.universes}</b>우주</span>
+        <span><b>${NUM.format(stats.stars)}</b>별</span>
+        <span><b>${stats.planets}</b>행성</span>
+      </div>
+    </div>
+    <div class="week-strip">${cells}</div>
   `;
 }
 
-function buildMonthBlocks(summaries: UniverseSummary[], range: Range): string {
-  if (summaries.length === 0) {
-    return `<div style="color: var(--fg-3); text-align: center; padding: 40px 0;">아직 기록된 우주가 없어요.</div>`;
-  }
-  const byDate = new Map<string, UniverseSummary>();
-  for (const s of summaries) byDate.set(s.date, s);
+// ───────────── Month view (calendar with offset) ─────────────
 
-  const today = new Date();
-  const todayIso = today.toISOString().slice(0, 10);
-  const monthsToShow = collectMonths(summaries, range, today);
-
-  return monthsToShow
-    .map((month) => renderMonthBlock(month.year, month.month, byDate, todayIso))
-    .join("");
-}
-
-interface MonthSlot {
-  year: number;
-  month: number;
-}
-
-function collectMonths(
-  summaries: UniverseSummary[],
-  range: Range,
-  today: Date,
-): MonthSlot[] {
-  const months = new Set<string>();
-  months.add(`${today.getFullYear()}-${today.getMonth()}`);
-  for (const s of summaries) {
-    const [y, m] = s.date.split("-").map((x) => parseInt(x, 10));
-    months.add(`${y}-${m - 1}`);
-  }
-  const arr = Array.from(months).map((key) => {
-    const [y, m] = key.split("-").map((x) => parseInt(x, 10));
-    return { year: y, month: m };
-  });
-  arr.sort((a, b) => b.year - a.year || b.month - a.month);
-
-  if (range === "week") {
-    return arr.filter((s) => s.year === today.getFullYear() && s.month === today.getMonth());
-  }
-  if (range === "month") {
-    return arr.slice(0, 2);
-  }
-  return arr;
-}
-
-function renderMonthBlock(
-  year: number,
-  month: number,
+function renderMonthView(
   byDate: Map<string, UniverseSummary>,
-  todayIso: string,
+  today: Date,
+  offset: number,
 ): string {
-  const firstDay = new Date(year, month, 1);
+  const monthDate = new Date(today.getFullYear(), today.getMonth() + offset, 1);
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDayOfWeek = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const leadingBlanks = firstDay.getDay();
-  const cellsInMonth = daysInMonth;
-  const monthRecords = Array.from(byDate.entries()).filter(([d]) =>
-    d.startsWith(`${year}-${String(month + 1).padStart(2, "0")}-`),
-  );
+
+  const monthEntries: UniverseSummary[] = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const u = byDate.get(isoOf(new Date(year, month, d)));
+    if (u) monthEntries.push(u);
+  }
+  const recorded = monthEntries.filter((u) => u.star_count > 0).length;
+  const totalStars = monthEntries.reduce((s, u) => s + u.star_count, 0);
+  const totalPlanets = monthEntries.reduce((s, u) => s + u.planet_count, 0);
+
+  const monthLabel = monthDate.toLocaleString("ko-KR", { year: "numeric", month: "long" });
+  const canNext = offset < 0;
 
   const cells: string[] = [];
-  for (let i = 0; i < leadingBlanks; i++) {
-    cells.push(`<div class="gallery-cell empty"></div>`);
+  for (let i = 0; i < firstDayOfWeek; i++) {
+    cells.push(`<div class="cal-cell out"></div>`);
   }
-  for (let day = 1; day <= cellsInMonth; day++) {
-    const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    const summary = byDate.get(iso);
-    cells.push(renderCell(iso, day, summary, iso === todayIso));
+  for (let d = 1; d <= daysInMonth; d++) {
+    const cellDate = new Date(year, month, d);
+    const iso = isoOf(cellDate);
+    const u = byDate.get(iso);
+    const isToday = sameDay(cellDate, today);
+    const isFuture = cellDate > today;
+    if (!u) {
+      const empty = ["cal-cell", "empty"];
+      if (isFuture) empty.push("future");
+      if (isToday) empty.push("today");
+      cells.push(`<div class="${empty.join(" ")}"><span class="dno">${d}</span></div>`);
+    } else {
+      const blackhole = isBlackhole(u);
+      const classes = ["cal-cell"];
+      if (blackhole) classes.push("blackhole");
+      if (isToday) classes.push("today");
+      const thumb = blackhole
+        ? ""
+        : `<canvas class="cell-thumb" data-thumb-id="${u.id}"></canvas>`;
+      const badge = u.planet_count > 0 ? `<span class="badge"></span>` : "";
+      cells.push(`
+        <div class="${classes.join(" ")}" data-id="${u.id}" data-date="${iso}">
+          ${thumb}
+          <span class="dno">${d}</span>
+          ${badge}
+        </div>
+      `);
+    }
   }
-  while (cells.length % 7 !== 0) cells.push(`<div class="gallery-cell empty"></div>`);
+
+  const dowHeader = DOW_KO.map((d, i) =>
+    `<span${i === 0 ? ' class="sun"' : ""}>${d}</span>`
+  ).join("");
 
   return `
-    <div class="month-block">
-      <div class="month-head">
-        <h3>${year}년 ${MONTH_NAMES[month]}</h3>
-        <span class="meta">${monthRecords.length} UNIVERSES</span>
+    <div class="month-nav">
+      <button class="month-arrow" id="gallery-month-prev" type="button" aria-label="이전 달">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M9 3L5 7L9 11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+      <div class="month-title">
+        <div class="m-name">${monthLabel}</div>
+        <div class="m-meta">${recorded}일 · ${NUM.format(totalStars)}★ · 행성 ${totalPlanets}</div>
       </div>
-      <div class="gallery-grid">${cells.join("")}</div>
+      <button class="month-arrow" id="gallery-month-next" type="button" aria-label="다음 달" ${canNext ? "" : "disabled"}>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M5 3L9 7L5 11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
     </div>
+    <div class="dow-header">${dowHeader}</div>
+    <div class="cal-grid">${cells.join("")}</div>
   `;
 }
 
-function renderCell(
-  iso: string,
-  day: number,
-  summary: UniverseSummary | undefined,
-  isToday: boolean,
+function wireMonthNav(byDate: Map<string, UniverseSummary>, today: Date) {
+  const prev = document.getElementById("gallery-month-prev") as HTMLButtonElement | null;
+  const next = document.getElementById("gallery-month-next") as HTMLButtonElement | null;
+  const repaint = () => {
+    const $content = document.getElementById("gallery-content");
+    if (!$content) return;
+    $content.innerHTML = renderMonthView(byDate, today, monthOffset);
+    wireMonthNav(byDate, today);
+    attachCellClicks();
+    primeCellThumbnails();
+  };
+  prev?.addEventListener("click", () => {
+    monthOffset--;
+    repaint();
+  });
+  next?.addEventListener("click", () => {
+    if (monthOffset < 0) {
+      monthOffset++;
+      repaint();
+    }
+  });
+}
+
+// ───────────── Heatmap (53×7 last-365-days GitHub-style) ─────────────
+
+function renderHeatmapView(
+  byDate: Map<string, UniverseSummary>,
+  today: Date,
 ): string {
-  if (!summary) {
-    return `<div class="gallery-cell empty"><span class="day-label">${day}</span></div>`;
+  // Anchor 53-week window so the rightmost column ends at today and the
+  // leftmost column starts on the Sunday >= today - 364 days.
+  const start = new Date(today);
+  start.setDate(start.getDate() - 364);
+  start.setDate(start.getDate() - start.getDay());
+
+  interface HmCell { date: Date; u: UniverseSummary | undefined; future: boolean; isToday: boolean }
+  const cols: HmCell[][] = [];
+  const monthMarkers: { col: number; label: string }[] = [];
+  let lastMonth = -1;
+  for (let c = 0; c < 53; c++) {
+    const col: HmCell[] = [];
+    for (let d = 0; d < 7; d++) {
+      const day = new Date(start);
+      day.setDate(day.getDate() + c * 7 + d);
+      if (day > today) {
+        col.push({ date: day, u: undefined, future: true, isToday: false });
+      } else {
+        col.push({
+          date: day,
+          u: byDate.get(isoOf(day)),
+          future: false,
+          isToday: sameDay(day, today),
+        });
+      }
+    }
+    const colMonth = col[0].date.getMonth();
+    if (colMonth !== lastMonth) {
+      monthMarkers.push({
+        col: c,
+        label: col[0].date.toLocaleString("ko-KR", { month: "short" }),
+      });
+      lastMonth = colMonth;
+    }
+    cols.push(col);
   }
-  const isBlack = summary.galaxy_type === "black_hole" || summary.star_count === 0;
-  const todayCls = isToday ? "today" : "";
-  const blackCls = isBlack ? "blackhole" : "";
-  const badge = summary.planet_count > 0 ? `<span class="badge"></span>` : "";
-  // Black-hole days keep the CSS-only ring; everything else gets a lazy
-  // thumbnail canvas drawn from the universe's actual stars.
-  const thumb = isBlack
-    ? ""
-    : `<canvas class="cell-thumb" data-thumb-id="${summary.id}"></canvas>`;
+
+  // Year stats.
+  const yearU: UniverseSummary[] = [];
+  for (let i = 0; i < 365; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const u = byDate.get(isoOf(d));
+    if (u) yearU.push(u);
+  }
+  const totalUniverses = yearU.filter((u) => u.star_count > 0).length;
+  const totalStars = yearU.reduce((s, u) => s + u.star_count, 0);
+  const totalPlanets = yearU.reduce((s, u) => s + u.planet_count, 0);
+  let streak = 0;
+  for (let i = 0; i < 365; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const u = byDate.get(isoOf(d));
+    if (u && u.star_count > 0) streak++;
+    else break;
+  }
+
+  const levelFor = (u: UniverseSummary | undefined): number => {
+    if (!u) return 0;
+    if (isBlackhole(u)) return -1;
+    const s = u.star_count;
+    if (s === 0) return 0;
+    if (s < 50) return 1;
+    if (s < 100) return 2;
+    if (s < 200) return 3;
+    return 4;
+  };
+
+  const colsHtml = cols
+    .map((col) => {
+      const cells = col
+        .map((d) => {
+          if (d.future) return `<div class="hm-cell future"></div>`;
+          const lvl = levelFor(d.u);
+          const classes = ["hm-cell"];
+          if (lvl === -1) classes.push("blackhole");
+          else classes.push(`level-${lvl}`);
+          if (d.isToday) classes.push("today");
+          if (d.u) classes.push("has");
+          const dataAttrs = d.u
+            ? `data-id="${d.u.id}" data-date="${isoOf(d.date)}"`
+            : "";
+          const tip = d.u
+            ? `${d.date.toLocaleDateString("ko-KR")} · ${isBlackhole(d.u) ? "잠든 우주" : `${d.u.star_count}★ · 행성 ${d.u.planet_count}`}`
+            : d.date.toLocaleDateString("ko-KR");
+          return `<div class="${classes.join(" ")}" title="${tip}" ${dataAttrs}></div>`;
+        })
+        .join("");
+      return `<div class="hm-col">${cells}</div>`;
+    })
+    .join("");
+
+  const monthsHtml = monthMarkers
+    .map((m) => `<span style="left: ${(m.col * 100) / 53}%">${m.label}</span>`)
+    .join("");
+
   return `
-    <div class="gallery-cell ${blackCls} ${todayCls}" data-id="${summary.id}" data-date="${iso}">
-      ${thumb}
-      ${badge}
-      <span class="day-label">${day}</span>
+    <div class="heatmap-stats">
+      <div class="hm-stat">
+        <div class="hm-num">${totalUniverses}<span class="of">/365</span></div>
+        <div class="hm-lbl">우주</div>
+      </div>
+      <div class="hm-stat">
+        <div class="hm-num">${streak}<span class="of">일</span></div>
+        <div class="hm-lbl">연속 기록</div>
+      </div>
+      <div class="hm-stat">
+        <div class="hm-num">${NUM.format(totalStars)}</div>
+        <div class="hm-lbl">총 별</div>
+      </div>
+      <div class="hm-stat">
+        <div class="hm-num">${totalPlanets}</div>
+        <div class="hm-lbl">행성</div>
+      </div>
+    </div>
+    <div class="heatmap-wrap">
+      <div class="hm-months">${monthsHtml}</div>
+      <div class="hm-body">
+        <div class="hm-dow">
+          <span>월</span><span>수</span><span>금</span>
+        </div>
+        <div class="hm-grid">${colsHtml}</div>
+      </div>
+      <div class="hm-legend">
+        <span>적음</span>
+        <span class="hm-cell level-0"></span>
+        <span class="hm-cell level-1"></span>
+        <span class="hm-cell level-2"></span>
+        <span class="hm-cell level-3"></span>
+        <span class="hm-cell level-4"></span>
+        <span>많음</span>
+        <span class="hm-sep">·</span>
+        <span class="hm-cell blackhole"></span>
+        <span>잠든 우주</span>
+      </div>
     </div>
   `;
 }
 
 function attachCellClicks() {
-  document.querySelectorAll<HTMLElement>(".gallery-cell:not(.empty)").forEach((cell) => {
-    cell.addEventListener("click", () => {
-      const id = cell.dataset.id;
-      const date = cell.dataset.date;
-      if (!id || !date) return;
-      const summary = lastSummaries.find((s) => s.id === parseInt(id, 10));
-      if (summary) void openOverlay(summary, date);
+  document
+    .querySelectorAll<HTMLElement>(
+      ".week-cell[data-id], .cal-cell[data-id], .hm-cell.has[data-id]",
+    )
+    .forEach((cell) => {
+      cell.addEventListener("click", () => {
+        const id = cell.dataset.id;
+        const date = cell.dataset.date;
+        if (!id || !date) return;
+        const summary = lastSummaries.find((s) => s.id === parseInt(id, 10));
+        if (summary) void openOverlay(summary, date);
+      });
     });
-  });
 }
 
 // ───────────────────── Cell thumbnails ─────────────────────

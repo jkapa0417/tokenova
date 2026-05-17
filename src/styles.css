@@ -401,38 +401,20 @@ button {
 .planet-pin[data-rarity="legendary"] .pin-tt-meta { color: var(--rare-l); }
 .planet-pin[data-rarity="mythic"]    .pin-tt-meta { color: var(--rare-m); }
 
-/* Blackhole-day: hero overlay (saturn-like ring + dark sphere + gold halo)
-   centered on the empty starfield. */
-.universe-wrap.blackhole-day::before {
-  content: '';
+/* 잠든 우주 — quiet rest-day canvas (purple mist + crescent moon + ZZZ)
+   replaces the old saturn-ring blackhole overlay. The canvas mounts inline
+   inside .universe-wrap and fills the wrap; HUD stays on top. */
+.sleeping-canvas {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 280px;
-  height: 88px;
-  border-radius: 50%;
-  border: 1px solid rgba(212, 168, 87, 0.42);
-  box-shadow: 0 0 18px rgba(212, 168, 87, 0.18);
-  pointer-events: none;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
   z-index: 1;
 }
-.universe-wrap.blackhole-day::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 152px;
-  height: 152px;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 50% 50%, #000 58%, rgba(0, 0, 0, 0.6) 78%, rgba(0, 0, 0, 0) 100%);
-  box-shadow:
-    0 0 64px 6px rgba(212, 168, 87, 0.28),
-    0 0 0 1.5px rgba(212, 168, 87, 0.55);
-  pointer-events: none;
-  z-index: 2;
+.universe-wrap.sleeping-day #universe-canvas,
+.universe-wrap.sleeping-day .planet-overlay {
+  display: none;
 }
 
 /* "+ N NEW DISCOVERIES" badge on Today */
@@ -1375,6 +1357,392 @@ button {
   box-shadow: 0 0 8px rgba(212, 168, 87, 0.25), inset 0 0 0 1px rgba(212, 168, 87, 0.4);
 }
 
+/* ───────────── Gallery: Week view ───────────── */
+.week-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 6px 2px 14px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 14px;
+}
+.week-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--fg-0);
+}
+.week-sub {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-3);
+  letter-spacing: 0.04em;
+}
+.week-stats {
+  display: flex;
+  gap: 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-3);
+  letter-spacing: 0.02em;
+}
+.week-stats span { display: flex; align-items: baseline; gap: 2px; }
+.week-stats b {
+  color: var(--fg-0);
+  font-size: 14px;
+  font-weight: 500;
+  margin-right: 2px;
+}
+.week-strip {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+.week-cell {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 6px 6px;
+  text-align: center;
+  background: var(--bg-1);
+  border-radius: 8px;
+  min-height: 110px;
+  cursor: pointer;
+  position: relative;
+  transition: transform 180ms cubic-bezier(.2,.7,.2,1), background 180ms, box-shadow 180ms;
+}
+.week-cell:hover {
+  background: var(--bg-2);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+}
+.week-cell.today {
+  border: 0.5px solid rgba(212,168,87,0.55);
+  background: linear-gradient(180deg, rgba(212,168,87,0.06), var(--bg-1));
+}
+.week-cell.today::before {
+  content: 'TODAY';
+  position: absolute;
+  top: 4px; right: 5px;
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  letter-spacing: 0.14em;
+  color: var(--gold);
+}
+.week-cell.no-thumb { cursor: default; }
+.week-cell.no-thumb:hover {
+  transform: none;
+  box-shadow: none;
+  background: var(--bg-1);
+}
+.week-dow {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--fg-3);
+  letter-spacing: 0.1em;
+  margin-bottom: 2px;
+}
+.week-dow.sun { color: rgba(255, 120, 120, 0.7); }
+.week-num {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--fg-0);
+  margin-bottom: 6px;
+}
+.week-thumb {
+  flex: 1;
+  background: #07080c;
+  border-radius: 5px;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 5px;
+  min-height: 40px;
+}
+.week-thumb canvas {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+}
+.thumb-blackhole {
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at 50% 50%, #000 0%, #0a0a14 70%);
+}
+.thumb-blackhole::before {
+  content: '';
+  position: absolute; inset: 30%;
+  border-radius: 50%;
+  background: #000;
+  box-shadow: 0 0 6px rgba(212,168,87,0.25), inset 0 0 0 1px rgba(212,168,87,0.4);
+}
+.thumb-empty {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--fg-4);
+}
+.week-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-2);
+  letter-spacing: 0.02em;
+}
+.week-meta .dim { color: var(--fg-3); margin-left: 1px; }
+
+/* ───────────── Gallery: Month view ───────────── */
+.month-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 14px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 14px;
+}
+.month-arrow {
+  width: 30px; height: 30px;
+  background: transparent;
+  border: 0.5px solid var(--line-2);
+  border-radius: 8px;
+  color: var(--fg-1);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 120ms, border-color 120ms, color 120ms;
+}
+.month-arrow:hover {
+  background: rgba(255,255,255,0.05);
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.month-arrow:disabled { opacity: 0.3; cursor: default; }
+.month-arrow:disabled:hover {
+  background: transparent;
+  border-color: var(--line-2);
+  color: var(--fg-1);
+}
+.month-title { flex: 1; text-align: center; }
+.m-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--fg-0);
+  letter-spacing: -0.01em;
+}
+.m-meta {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-3);
+  letter-spacing: 0.04em;
+}
+.dow-header {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+  margin-bottom: 5px;
+}
+.dow-header span {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--fg-3);
+  letter-spacing: 0.1em;
+  padding: 4px 0;
+}
+.dow-header span.sun { color: rgba(255, 120, 120, 0.7); }
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+}
+.cal-cell {
+  aspect-ratio: 1;
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #07080c;
+  border: 0.5px solid var(--line);
+  cursor: pointer;
+  transition: transform 180ms, box-shadow 180ms;
+}
+.cal-cell:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(212, 168, 87, 0.4);
+  z-index: 2;
+}
+.cal-cell.out { background: transparent; border-color: transparent; cursor: default; }
+.cal-cell.empty {
+  background: var(--bg-1);
+  cursor: default;
+}
+.cal-cell.empty:hover { transform: none; box-shadow: none; }
+.cal-cell.future {
+  background: rgba(255,255,255,0.015);
+  border-style: dashed;
+  cursor: default;
+}
+.cal-cell.future:hover { transform: none; box-shadow: none; }
+.cal-cell.future .dno { color: var(--fg-4); opacity: 0.6; }
+.cal-cell canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.cal-cell .dno {
+  position: absolute;
+  bottom: 3px; left: 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: rgba(255,255,255,0.65);
+  z-index: 1;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.85);
+}
+.cal-cell.empty .dno { color: var(--fg-3); text-shadow: none; }
+.cal-cell.today {
+  box-shadow: 0 0 0 1px var(--gold);
+  border-color: transparent;
+}
+.cal-cell.today .dno { color: var(--gold); }
+.cal-cell .badge {
+  position: absolute;
+  top: 3px; right: 3px;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 4px var(--gold);
+  z-index: 1;
+}
+.cal-cell.blackhole {
+  background: radial-gradient(circle at 50% 50%, #000 0%, #0a0a14 70%);
+}
+.cal-cell.blackhole::before {
+  content: '';
+  position: absolute; inset: 30%;
+  border-radius: 50%;
+  background: #000;
+  box-shadow: 0 0 6px rgba(212,168,87,0.25), inset 0 0 0 1px rgba(212,168,87,0.3);
+}
+
+/* ───────────── Gallery: Heatmap (전체) ───────────── */
+.heatmap-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 12px;
+  background: var(--bg-1);
+  border: 0.5px solid var(--line);
+  border-radius: 8px;
+}
+.hm-stat { text-align: center; }
+.hm-num {
+  font-family: var(--font-mono);
+  font-size: 17px;
+  color: var(--fg-0);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.hm-num .of { color: var(--fg-3); font-size: 11px; margin-left: 1px; }
+.hm-lbl {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--fg-3);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.heatmap-wrap { position: relative; }
+.hm-months {
+  position: relative;
+  height: 14px;
+  margin-left: 18px;
+  margin-bottom: 4px;
+}
+.hm-months span {
+  position: absolute;
+  top: 0;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--fg-3);
+  letter-spacing: 0.04em;
+}
+.hm-body {
+  display: flex;
+  gap: 5px;
+  align-items: flex-start;
+}
+.hm-dow {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 14px;
+  height: calc(7 * 8px + 6 * 2px);
+  padding: 8px 0 0;
+}
+.hm-dow span {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--fg-3);
+  height: 8px;
+  line-height: 8px;
+}
+.hm-grid {
+  display: grid;
+  grid-template-columns: repeat(53, 1fr);
+  gap: 2px;
+  flex: 1;
+}
+.hm-col {
+  display: grid;
+  grid-template-rows: repeat(7, 1fr);
+  gap: 2px;
+}
+.hm-cell {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 1.5px;
+  background: rgba(255,255,255,0.04);
+  cursor: default;
+  transition: transform 120ms, box-shadow 120ms;
+}
+.hm-cell.has { cursor: pointer; }
+.hm-cell.has:hover {
+  transform: scale(1.6);
+  box-shadow: 0 0 0 0.5px var(--gold);
+  z-index: 2;
+}
+.hm-cell.future { background: rgba(255,255,255,0.01); }
+.hm-cell.level-0 { background: rgba(255,255,255,0.04); }
+.hm-cell.level-1 { background: rgba(212,168,87,0.18); }
+.hm-cell.level-2 { background: rgba(212,168,87,0.38); }
+.hm-cell.level-3 { background: rgba(212,168,87,0.62); }
+.hm-cell.level-4 {
+  background: rgba(232,200,158,0.95);
+  box-shadow: 0 0 4px rgba(232,200,158,0.4);
+}
+.hm-cell.blackhole {
+  background: #000;
+  box-shadow: inset 0 0 0 0.5px rgba(212,168,87,0.4);
+}
+.hm-cell.today {
+  outline: 1px solid var(--gold);
+  outline-offset: 0.5px;
+}
+.hm-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 12px;
+  padding-left: 18px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--fg-3);
+  letter-spacing: 0.04em;
+}
+.hm-legend .hm-cell {
+  width: 10px; height: 10px;
+  aspect-ratio: unset;
+}
+.hm-legend .hm-sep { margin: 0 6px; opacity: 0.5; }
+
 /* ===========================================================
    Planet detail modal (Codex card click) — full design v2
    =========================================================== */
@@ -1810,9 +2178,14 @@ button {
 .discovery-bg {
   position: absolute;
   inset: 0;
+  /* Almost-transparent frosted glass: the Today canvas shows through clearly,
+     only softly darkened and blurred. The warm gold vignette + heavy blur
+     keep the card readable even with so little dark tint. */
   background:
-    radial-gradient(ellipse 80% 60% at 50% 55%, rgba(232, 200, 158, 0.18) 0%, rgba(10, 10, 20, 0) 60%),
-    #0a0a14;
+    radial-gradient(ellipse 80% 60% at 50% 55%, rgba(232, 200, 158, 0.22) 0%, rgba(10, 10, 20, 0) 60%),
+    rgba(10, 10, 20, 0.18);
+  backdrop-filter: blur(26px) saturate(1.05);
+  -webkit-backdrop-filter: blur(26px) saturate(1.05);
   overflow: hidden;
   z-index: 60;
   animation: fadein 240ms ease;
@@ -1907,10 +2280,24 @@ button {
 }
 .discovery-stats {
   display: flex;
-  gap: 22px;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 26px;
   font-family: var(--font-mono);
 }
+.discovery-stats .row {
+  display: flex;
+  justify-content: center;
+  gap: 26px;
+}
+.discovery-stats .row.secondary {
+  /* Lower-tier metadata — same layout, dimmer + a thin divider line above. */
+  padding-top: 8px;
+  border-top: 0.5px dashed rgba(255, 255, 255, 0.08);
+  gap: 22px;
+}
+.discovery-stats .col { text-align: center; min-width: 60px; }
 .discovery-stats .col .l {
   font-size: 9px;
   color: var(--fg-3);
@@ -1921,6 +2308,12 @@ button {
   font-size: 14px;
   color: var(--fg-0);
   margin-top: 4px;
+}
+.discovery-stats .row.secondary .col .l { font-size: 8.5px; }
+.discovery-stats .row.secondary .col .v {
+  font-size: 11.5px;
+  color: var(--fg-2);
+  margin-top: 3px;
 }
 .discovery-cta-row {
   display: flex;
@@ -1963,6 +2356,9 @@ button {
   z-index: 3;
   backdrop-filter: blur(10px);
 }
+/* Queue bar is always visible; the card content shifts down so the
+   "NEW DISCOVERY" eyebrow doesn't sit right under the pagination chip. */
+.discovery-card { padding-top: 64px; }
 .dq-arrow {
   width: 22px;
   height: 22px;

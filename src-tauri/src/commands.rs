@@ -67,6 +67,28 @@ pub async fn get_current_session(db: State<'_, Arc<Db>>) -> Result<Option<Sessio
 }
 
 #[tauri::command]
+pub async fn get_session_by_id(
+    db: State<'_, Arc<Db>>,
+    session_id: i64,
+) -> Result<Option<Session>, String> {
+    let db = db.inner().clone();
+    tokio::task::spawn_blocking(move || db.get_session_by_id(session_id).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn get_discovery_ordinal(
+    db: State<'_, Arc<Db>>,
+    planet_id: i64,
+) -> Result<i64, String> {
+    let db = db.inner().clone();
+    tokio::task::spawn_blocking(move || db.discovery_ordinal(planet_id).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub async fn get_current_universe(
     engine: State<'_, Arc<Engine>>,
 ) -> Result<UniversePayload, String> {

@@ -15,6 +15,7 @@ import {
   stepDust,
   type EffectLayers,
 } from "./effects";
+import { drawStarBody, shapeForStar } from "./star-shapes";
 import {
   DISPLAY_H,
   DISPLAY_W,
@@ -212,11 +213,16 @@ export class UniverseRenderer {
         ctx.fill();
       }
 
-      // Body.
-      ctx.fillStyle = `rgba(${cr},${cg},${cb},${op})`;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
-      ctx.fill();
+      // Body — use the star-shapes catalog so giants/rare stars get the
+      // 5-point / starburst / pulsar / galaxy etc. silhouette they earned.
+      // Tiny stars (r<2) always resolve to a plain circle so the field
+      // doesn't visually noise out.
+      drawStarBody(
+        ctx,
+        s.x, s.y, r,
+        shapeForStar(star.id, star.radius),
+        `rgba(${cr},${cg},${cb},${op})`,
+      );
 
       // Constellation-member outline.
       if (constellationStarIds.has(star.id)) {

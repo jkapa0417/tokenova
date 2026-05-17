@@ -250,6 +250,31 @@ impl Db {
         Ok(result)
     }
 
+    pub fn get_session_by_id(&self, id: i64) -> Result<Option<Session>> {
+        let conn = self.conn.lock().expect("db poisoned");
+        let result = conn
+            .query_row(
+                "SELECT id, started_at, ended_at, total_tokens, triggered_planet
+                 FROM sessions WHERE id = ?1",
+                params![id],
+                row_to_session,
+            )
+            .optional()?;
+        Ok(result)
+    }
+
+    /// Position of this planet among every planet ever discovered — used as
+    /// the "DISCOVERY #N" stat in the discovery moment overlay.
+    pub fn discovery_ordinal(&self, planet_id: i64) -> Result<i64> {
+        let conn = self.conn.lock().expect("db poisoned");
+        let ordinal: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM planets WHERE id <= ?1",
+            params![planet_id],
+            |row| row.get(0),
+        )?;
+        Ok(ordinal)
+    }
+
     pub fn get_watch_offset(&self, file_path: &str) -> Result<u64> {
         let conn = self.conn.lock().expect("db poisoned");
         let offset: Option<i64> = conn
