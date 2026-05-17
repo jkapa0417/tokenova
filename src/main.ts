@@ -14,9 +14,10 @@ import {
   closePlanetModal,
 } from "./views/codex";
 import { activateGallery, closeGalleryOverlay } from "./views/gallery";
+import { activateSettings } from "./views/settings";
 import { activateToday, deactivateToday } from "./views/today";
 
-type TabKey = "today" | "codex" | "achievements" | "gallery";
+type TabKey = "today" | "codex" | "achievements" | "gallery" | "settings";
 
 const DEFAULT_TAB: TabKey = "today";
 const TOKEN_PILL_INTERVAL_MS = 3000;
@@ -26,7 +27,8 @@ let activeTab: TabKey | null = null;
 const numberFmt = new Intl.NumberFormat("ko-KR");
 
 function isTabKey(value: string | null | undefined): value is TabKey {
-  return value === "today" || value === "codex" || value === "achievements" || value === "gallery";
+  return value === "today" || value === "codex" || value === "achievements"
+    || value === "gallery" || value === "settings";
 }
 
 function readHashTab(): TabKey {
@@ -68,6 +70,9 @@ async function switchTab(target: TabKey, updateHash = true): Promise<void> {
       break;
     case "gallery":
       await activateGallery();
+      break;
+    case "settings":
+      await activateSettings();
       break;
   }
 }
@@ -139,10 +144,23 @@ async function refreshTokenPill(): Promise<void> {
     const total = await invoke<number>("get_today_total");
     const value = document.getElementById("token-pill-value");
     if (!value) return;
-    value.textContent = total > 0 ? `${numberFmt.format(total)} TKN` : "0";
+    value.textContent = total > 0 ? formatCompactTokens(total) : "0";
   } catch {
     // Silent — keeps the previous value displayed.
   }
+}
+
+/**
+ * Compact token formatting for the topbar pill — full digits up to 9 figures,
+ * then "1.0B / 12.3B" past 1,000,000,000. The main Today HUD stays at full
+ * digits via `numberFmt`; only the pill collapses.
+ */
+function formatCompactTokens(n: number): string {
+  if (n < 1_000_000_000) return numberFmt.format(n);
+  const billions = n / 1_000_000_000;
+  return billions >= 10
+    ? `${Math.round(billions)}B`
+    : `${(Math.round(billions * 10) / 10).toFixed(1)}B`;
 }
 
 window.addEventListener("DOMContentLoaded", () => {

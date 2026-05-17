@@ -322,7 +322,7 @@ function paintHud(payload: UniversePayload) {
   const $stars = document.getElementById("hud-stars");
   const $planets = document.getElementById("hud-planets");
   const $galaxy = document.getElementById("hud-galaxy");
-  if ($tokens) $tokens.textContent = numberFmt.format(payload.today_tokens);
+  if ($tokens) paintTokenTicker($tokens, payload.today_tokens);
   if ($stars) $stars.textContent = String(payload.universe.star_count);
   if ($planets) $planets.textContent = String((payload.planets ?? []).length);
   if ($galaxy) {
@@ -331,6 +331,79 @@ function paintHud(payload: UniversePayload) {
     $galaxy.textContent = GALAXY_LABEL[g];
   }
   applySleepingMood(payload.universe.star_count === 0);
+}
+
+// ─── Token ticker (stock-quote style digit roll) ───
+//
+// Renders `value` as a row of 1-character columns. Each digit column shows a
+// vertical strip of 0-9 stacked; setting `translateY: -N * 10%` reveals the
+// Nth digit. CSS transition animates the slide so updates feel like a real
+// ticker. Commas / minus signs / leading zeros are static spans.
+
+
+function paintTokenTicker(host: HTMLElement, value: number): void {
+  const text = numberFmt.format(value);
+  // Build / reconcile the digit slots.
+  if (host.dataset.tickerInited !== "true" || host.childElementCount === 0) {
+    host.classList.add("token-ticker");
+    host.innerHTML = buildTickerHtml(text);
+    host.dataset.tickerInited = "true";
+    return;
+  }
+
+  // If the formatted string length changed (e.g. crossed a thousand), rebuild
+  // from scratch so we don't try to in-place mutate a different layout.
+  const expected = host.querySelectorAll(".tk-slot").length;
+  const incomingSlots = text.split("");
+  if (incomingSlots.length !== expected) {
+    host.innerHTML = buildTickerHtml(text);
+    return;
+  }
+
+  // Same width — just update each slot's offset. Digit slots animate via
+  // CSS transition on transform.
+  const slots = host.querySelectorAll<HTMLElement>(".tk-slot");
+  for (let i = 0; i < slots.length; i++) {
+    const ch = incomingSlots[i];
+    const slot = slots[i];
+    if (slot.classList.contains("tk-digit")) {
+      const d = parseInt(ch, 10);
+      if (!isNaN(d)) {
+        const col = slot.firstElementChild as HTMLElement | null;
+        if (col) col.style.transform = `translateY(${-d * 10}%)`;
+      } else {
+        // The slot used to be a digit but the new char is punctuation —
+        // happens when crossing 10^N boundaries the same length filter
+        // above didn't catch. Replace it inline.
+        slot.replaceWith(staticSlot(ch));
+      }
+    } else if (slot.textContent !== ch) {
+      slot.textContent = ch;
+    }
+  }
+}
+
+function buildTickerHtml(text: string): string {
+  return text.split("").map((ch) => {
+    const d = parseInt(ch, 10);
+    if (!isNaN(d)) {
+      // Pre-render a 0-9 column; CSS will translateY to expose the target digit.
+      const col = "0123456789".split("").map((n) => `<span>${n}</span>`).join("");
+      return `<span class="tk-slot tk-digit"><span class="tk-col" style="transform: translateY(${-d * 10}%)">${col}</span></span>`;
+    }
+    return `<span class="tk-slot tk-static">${escapeChar(ch)}</span>`;
+  }).join("");
+}
+
+function staticSlot(ch: string): HTMLElement {
+  const span = document.createElement("span");
+  span.className = "tk-slot tk-static";
+  span.textContent = ch;
+  return span;
+}
+
+function escapeChar(ch: string): string {
+  return ch === "<" ? "&lt;" : ch === ">" ? "&gt;" : ch === "&" ? "&amp;" : ch;
 }
 
 // Track the mounted sleeping canvas so we can dispose its rAF when the

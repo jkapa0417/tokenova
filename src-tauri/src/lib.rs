@@ -45,6 +45,9 @@ pub fn run() {
             commands::get_gallery,
             commands::get_pending_discoveries,
             commands::acknowledge_planets,
+            commands::get_providers_health,
+            commands::set_provider_path,
+            commands::clear_provider_path,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -93,13 +96,39 @@ pub fn run() {
             SessionManager::new(db.clone(), closed_tx).spawn(events_rx_session);
 
             // --- Watchers ---
-            let claude_handle =
-                spawn_claude_code_watcher(db.clone(), events_tx.clone(), first_run)
-                    .expect("claude code watcher initialized");
-            let codex_handle =
-                spawn_codex_cli_watcher(db.clone(), events_tx.clone(), first_run)
-                    .expect("codex cli watcher initialized");
-            spawn_opencode_watcher(db.clone(), events_tx.clone(), first_run)
+            // Read per-provider path overrides from settings so users can
+            // point Tokenova at non-default install locations.
+            let claude_override = db
+                .get_setting("provider.claude_code.path")
+                .ok()
+                .flatten()
+                .map(std::path::PathBuf::from);
+            let codex_override = db
+                .get_setting("provider.codex_cli.path")
+                .ok()
+                .flatten()
+                .map(std::path::PathBuf::from);
+            let opencode_override = db
+                .get_setting("provider.opencode.path")
+                .ok()
+                .flatten()
+                .map(std::path::PathBuf::from);
+
+            let claude_handle = spawn_claude_code_watcher(
+                db.clone(),
+                events_tx.clone(),
+                first_run,
+                claude_override,
+            )
+            .expect("claude code watcher initialized");
+            let codex_handle = spawn_codex_cli_watcher(
+                db.clone(),
+                events_tx.clone(),
+                first_run,
+                codex_override,
+            )
+            .expect("codex cli watcher initialized");
+            spawn_opencode_watcher(db.clone(), events_tx.clone(), first_run, opencode_override)
                 .expect("opencode watcher initialized");
             // Mark bootstrap done so subsequent launches resume incremental
             // ingestion. Each watcher's bootstrap task captured `first_run`

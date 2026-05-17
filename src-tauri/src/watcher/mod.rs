@@ -38,15 +38,22 @@ pub fn codex_sessions_dir() -> Result<PathBuf> {
     Ok(home.join(".codex").join("sessions"))
 }
 
-/// Convenience: launch the Claude Code watcher.
+/// Convenience: launch the Claude Code watcher. `override_dir` swaps in a
+/// user-configured path (Settings → Provider path); when `None`, falls back
+/// to the conventional `~/.claude/projects`.
 pub fn spawn_claude_code_watcher(
     db: Arc<Db>,
     events_tx: broadcast::Sender<TokenEvent>,
     first_run: bool,
+    override_dir: Option<PathBuf>,
 ) -> Result<WatcherHandle> {
+    let dir = match override_dir {
+        Some(p) => p,
+        None => claude_projects_dir()?,
+    };
     spawn_provider_watcher(
         "claude_code",
-        claude_projects_dir()?,
+        dir,
         claude_code::parse_line,
         db,
         events_tx,
@@ -59,10 +66,15 @@ pub fn spawn_codex_cli_watcher(
     db: Arc<Db>,
     events_tx: broadcast::Sender<TokenEvent>,
     first_run: bool,
+    override_dir: Option<PathBuf>,
 ) -> Result<WatcherHandle> {
+    let dir = match override_dir {
+        Some(p) => p,
+        None => codex_sessions_dir()?,
+    };
     spawn_provider_watcher(
         "codex_cli",
-        codex_sessions_dir()?,
+        dir,
         codex_cli::parse_line,
         db,
         events_tx,
