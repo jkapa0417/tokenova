@@ -560,6 +560,11 @@ button {
   align-items: center;
   gap: 8px;
 }
+/* `display: flex` above overrides the user-agent `[hidden]` rule, so the
+   name row stays visible alongside the count row. Force `display: none`
+   when the hidden attribute is set. */
+.draw-bar-row[hidden] { display: none; }
+.draw-bar-hint[hidden] { display: none; }
 .draw-bar-label {
   flex: 1;
   font-family: var(--font-mono);
