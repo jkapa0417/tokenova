@@ -14,6 +14,11 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
+import {
+  disable as disableAutostart,
+  enable as enableAutostart,
+  isEnabled as isAutostartEnabled,
+} from "@tauri-apps/plugin-autostart";
 
 import {
   formatNumber,
@@ -47,6 +52,7 @@ export async function activateSettings(): Promise<void> {
   syncLangButtons();
   await refresh();
   void paintVersion();
+  void paintAutostart();
 }
 
 function wire() {
@@ -80,8 +86,50 @@ function wire() {
     void refresh();
     syncUpdateRow(getPendingUpdate()?.version ?? null);
     syncLangButtons();
+    void paintAutostart();   // re-paint status text in new locale
   });
+
+  const $autoInput = document.getElementById(
+    "settings-autostart-input",
+  ) as HTMLInputElement | null;
+  $autoInput?.addEventListener("change", () => void onAutostartToggle());
+
   wiredUp = true;
+}
+
+async function paintAutostart(): Promise<void> {
+  const $input = document.getElementById(
+    "settings-autostart-input",
+  ) as HTMLInputElement | null;
+  const $status = document.getElementById("settings-autostart-status");
+  if (!$input || !$status) return;
+  try {
+    const enabled = await isAutostartEnabled();
+    $input.checked = enabled;
+    $status.textContent = enabled ? t("settings.autostart.on") : t("settings.autostart.off");
+  } catch (e) {
+    console.error("isAutostartEnabled:", e);
+    $status.textContent = t("settings.autostart.failed");
+  }
+}
+
+async function onAutostartToggle(): Promise<void> {
+  const $input = document.getElementById(
+    "settings-autostart-input",
+  ) as HTMLInputElement | null;
+  const $status = document.getElementById("settings-autostart-status");
+  if (!$input || !$status) return;
+  const target = $input.checked;
+  try {
+    if (target) await enableAutostart();
+    else await disableAutostart();
+    $status.textContent = target ? t("settings.autostart.on") : t("settings.autostart.off");
+  } catch (e) {
+    console.error("autostart toggle:", e);
+    // Revert the checkbox to the actual OS state, then surface the error.
+    $input.checked = !target;
+    $status.textContent = t("settings.autostart.failed");
+  }
 }
 
 function syncLangButtons(): void {

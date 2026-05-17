@@ -2844,3 +2844,47 @@ body.os-windows .topbar .token-pill { cursor: pointer; }
   color: var(--gold);
   background: rgba(212, 168, 87, 0.08);
 }
+
+/* ───── Settings → 시작 프로그램 (autostart toggle) ───── */
+.settings-toggle {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.settings-toggle input { opacity: 0; width: 0; height: 0; }
+.settings-toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.1);
+  border: 0.5px solid var(--line-2);
+  border-radius: 999px;
+  transition: background 160ms;
+}
+.settings-toggle-slider::before {
+  content: "";
+  position: absolute;
+  height: 14px;
+  width: 14px;
+  left: 2px;
+  top: 2px;
+  background: var(--fg-2);
+  border-radius: 50%;
+  transition: transform 160ms, background 160ms;
+}
+.settings-toggle input:checked + .settings-toggle-slider {
+  background: rgba(212, 168, 87, 0.3);
+  border-color: var(--gold);
+}
+.settings-toggle input:checked + .settings-toggle-slider::before {
+  transform: translateX(16px);
+  background: var(--gold);
+}
+.settings-autostart-status {
+  color: var(--fg-2);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
