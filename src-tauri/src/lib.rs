@@ -92,6 +92,23 @@ pub fn run() {
                 });
             }
 
+            // Windows-only: auto-hide the popover when it loses focus, so
+            // clicking anywhere outside the window closes it (standard tray /
+            // dropdown UX). macOS users use the menubar icon to re-toggle, and
+            // Linux desktops vary too widely to commit to one behaviour — so
+            // this stays Windows-specific. Debug builds skip it so devs can
+            // inspect the popover in DevTools without it vanishing on focus
+            // change.
+            #[cfg(all(target_os = "windows", not(debug_assertions)))]
+            if let Some(window) = app.get_webview_window("main") {
+                let win = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::Focused(false) = event {
+                        let _ = win.hide();
+                    }
+                });
+            }
+
             // --- DB ---
             let data_dir = app.path().app_data_dir().expect("resolve app data dir");
             std::fs::create_dir_all(&data_dir).expect("create app data dir");
