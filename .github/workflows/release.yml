@@ -83,7 +83,12 @@ jobs:
           # Draft = false so `releases/latest/download/latest.json` resolves —
           # GitHub's "latest" alias only points at published, non-draft releases.
           releaseDraft: false
-          prerelease: false
+          # Auto-detect prerelease from the tag: anything with a dash (eg
+          # v0.1.0-rc.1, v1.0.0-beta.2) is published as a prerelease so it
+          # doesn't claim the /releases/latest slot. Plain semver (v1.0.0)
+          # publishes as the live release. Lets us shake out early builds
+          # without breaking the auto-updater pointer.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           # Generates and uploads `latest.json` alongside the platform installers.
           # The endpoint in tauri.conf.json points at this file.
           includeUpdaterJson: true
