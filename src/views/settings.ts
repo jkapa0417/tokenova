@@ -13,6 +13,13 @@
 // startup. The card explicitly tells the user this.
 
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
+
+import {
+  getPendingUpdate,
+  installPendingUpdate,
+  subscribeUpdates,
+} from "../updater";
 
 interface ProviderHealth {
   id: string;
@@ -31,12 +38,71 @@ let wiredUp = false;
 export async function activateSettings(): Promise<void> {
   wire();
   await refresh();
+  void paintVersion();
 }
 
 function wire() {
   if (wiredUp) return;
   document.getElementById("settings-refresh")?.addEventListener("click", () => void refresh());
+  document
+    .getElementById("settings-update-btn")
+    ?.addEventListener("click", () => void runInstall());
+  // Refresh the button visibility whenever the updater's pending state changes
+  // (e.g. background check finishes after the Settings tab opens). The
+  // subscriber fires synchronously with the current value too.
+  subscribeUpdates((update) => syncUpdateRow(update?.version ?? null));
   wiredUp = true;
+}
+
+async function paintVersion(): Promise<void> {
+  const $v = document.getElementById("settings-version");
+  if (!$v) return;
+  try {
+    $v.textContent = `v${await getVersion()}`;
+  } catch (e) {
+    console.error("getVersion:", e);
+    $v.textContent = "—";
+  }
+  syncUpdateRow(getPendingUpdate()?.version ?? null);
+}
+
+function syncUpdateRow(newVersion: string | null): void {
+  const $btn = document.getElementById("settings-update-btn") as HTMLButtonElement | null;
+  const $status = document.getElementById("settings-update-status");
+  if (!$btn) return;
+  if (newVersion) {
+    $btn.hidden = false;
+    $btn.disabled = false;
+    $btn.textContent = `v${newVersion} 설치`;
+    if ($status) {
+      $status.hidden = false;
+      $status.textContent = `새 버전 v${newVersion} 사용 가능`;
+    }
+  } else {
+    $btn.hidden = true;
+    if ($status) $status.hidden = true;
+  }
+}
+
+async function runInstall(): Promise<void> {
+  const $btn = document.getElementById("settings-update-btn") as HTMLButtonElement | null;
+  const $status = document.getElementById("settings-update-status");
+  if (!$btn) return;
+  $btn.disabled = true;
+  $btn.textContent = "다운로드 중…";
+  if ($status) {
+    $status.hidden = false;
+    $status.textContent = "업데이트 다운로드 중…";
+  }
+  try {
+    const ok = await installPendingUpdate();
+    if (!ok && $status) $status.textContent = "사용 가능한 업데이트가 없습니다.";
+  } catch (e) {
+    console.error("installPendingUpdate:", e);
+    $btn.disabled = false;
+    $btn.textContent = "재시도";
+    if ($status) $status.textContent = "설치 실패 — 다시 시도해주세요.";
+  }
 }
 
 async function refresh(): Promise<void> {

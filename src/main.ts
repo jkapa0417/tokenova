@@ -16,6 +16,7 @@ import {
 import { activateGallery, closeGalleryOverlay } from "./views/gallery";
 import { activateSettings } from "./views/settings";
 import { activateToday, deactivateToday } from "./views/today";
+import { startUpdateCheck } from "./updater";
 
 type TabKey = "today" | "codex" | "achievements" | "gallery" | "settings";
 
@@ -169,6 +170,9 @@ window.addEventListener("DOMContentLoaded", () => {
   void switchTab(readHashTab(), false);
   void refreshTokenPill();
   setInterval(() => void refreshTokenPill(), TOKEN_PILL_INTERVAL_MS);
+  // Fire and forget — silent failure is fine (offline / no release yet).
+  // Delay slightly so first paint isn't blocked by an HTTP request.
+  setTimeout(() => void startUpdateCheck(), 3000);
 });
 
 window.addEventListener("hashchange", () => {
