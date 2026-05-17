@@ -33,7 +33,7 @@ let queue: Planet[] = [];
 let index = 0;
 let wiredUp = false;
 
-const dateFmt = new Intl.DateTimeFormat("ko-KR", {
+const shortDateFmt = new Intl.DateTimeFormat("ko-KR", {
   month: "long",
   day: "numeric",
   hour: "2-digit",
@@ -112,7 +112,16 @@ function render() {
   $tot().textContent = String(queue.length).padStart(2, "0");
   $prev().disabled = index === 0;
   $next().disabled = index === queue.length - 1;
-  $queueBar().hidden = queue.length <= 1;
+  // Bar stays visible even for single-item queues so the user always sees
+  // a "01 / 01 NEW" counter alongside the moment.
+  $queueBar().hidden = false;
+}
+
+interface SessionInfo {
+  id: number;
+  started_at: string;
+  ended_at: string | null;
+  total_tokens: number;
 }
 
 function paintCard(planet: Planet) {
@@ -125,13 +134,20 @@ function paintCard(planet: Planet) {
     "관측 데이터가 부족합니다. 더 많은 항해가 필요합니다.";
   const rarityLabel = RARITY_LABEL[planet.rarity];
   const ringColor = RARITY_RING_COLOR[planet.rarity];
-  const discoveredAt = planet.discovered_at
-    ? dateFmt.format(new Date(planet.discovered_at))
-    : "방금";
 
   const orbSvg = spec
     ? planetSvg(spec, 180)
     : `<div style="width:180px; height:180px; border-radius:50%; background:#333; box-shadow:0 0 0 1px ${ringColor};"></div>`;
+
+  // Numbers we have synchronously. Session # falls back to "—" if the planet
+  // wasn't tied to a session (legacy rows). Duration + Discovery # populate
+  // asynchronously below once their lookups return.
+  const sessionLabel = planet.triggering_session_id
+    ? `#${planet.triggering_session_id}`
+    : "—";
+  const discoveredAt = planet.discovered_at
+    ? shortDateFmt.format(new Date(planet.discovered_at))
+    : "방금";
 
   $card().innerHTML = `
     <div class="discovery-eyebrow">
@@ -147,13 +163,25 @@ function paintCard(planet: Planet) {
     <div class="discovery-name">${displayName}</div>
     <div class="discovery-desc">${description}</div>
     <div class="discovery-stats">
-      <div class="col">
-        <div class="l">DISCOVERED</div>
-        <div class="v">${discoveredAt}</div>
+      <div class="row primary">
+        <div class="col">
+          <div class="l">SESSION</div>
+          <div class="v">${sessionLabel}</div>
+        </div>
+        <div class="col">
+          <div class="l">DURATION</div>
+          <div class="v" id="discovery-duration">—</div>
+        </div>
+        <div class="col">
+          <div class="l">DISCOVERY #</div>
+          <div class="v" id="discovery-ordinal">—</div>
+        </div>
       </div>
-      <div class="col">
-        <div class="l">SEED</div>
-        <div class="v">${planet.seed & 0xffff}</div>
+      <div class="row secondary">
+        <div class="col">
+          <div class="l">DISCOVERED</div>
+          <div class="v">${discoveredAt}</div>
+        </div>
       </div>
     </div>
     <div class="discovery-cta-row">
@@ -178,6 +206,44 @@ function paintCard(planet: Planet) {
     });
   }
   if (codex) codex.addEventListener("click", () => void closeAll("codex"));
+
+  void hydrateStats(planet);
+}
+
+async function hydrateStats(planet: Planet) {
+  // Discovery # — count of planets at or before this id across all time.
+  void invoke<number>("get_discovery_ordinal", { planetId: planet.id })
+    .then((n) => {
+      const $o = document.getElementById("discovery-ordinal");
+      if ($o) $o.textContent = `#${n}`;
+    })
+    .catch((e) => console.error("get_discovery_ordinal:", e));
+
+  // Duration — session.ended_at - session.started_at, formatted as Hh Mm
+  // (or just Mm under an hour). Falls back to the gap between session start
+  // and the planet's discovered_at when ended_at is missing.
+  if (!planet.triggering_session_id) return;
+  try {
+    const session = await invoke<SessionInfo | null>("get_session_by_id", {
+      sessionId: planet.triggering_session_id,
+    });
+    if (!session) return;
+    const start = new Date(session.started_at).getTime();
+    const endRaw = session.ended_at ?? planet.discovered_at ?? null;
+    const end = endRaw ? new Date(endRaw).getTime() : Date.now();
+    const totalMin = Math.max(1, Math.round((end - start) / 60000));
+    const $d = document.getElementById("discovery-duration");
+    if ($d) $d.textContent = formatDuration(totalMin);
+  } catch (e) {
+    console.error("get_session_by_id:", e);
+  }
+}
+
+function formatDuration(totalMinutes: number): string {
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
 /** Fetch unacknowledged planets and reflect their count in the badge. */

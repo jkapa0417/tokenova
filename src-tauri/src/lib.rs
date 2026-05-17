@@ -33,6 +33,8 @@ pub fn run() {
             commands::get_today_total,
             commands::get_recent_token_events,
             commands::get_current_session,
+            commands::get_session_by_id,
+            commands::get_discovery_ordinal,
             commands::get_current_universe,
             commands::get_codex,
             commands::get_achievements,

@@ -23,6 +23,19 @@ import { planetSvg } from "../universe/planet-svg";
 import { UniverseRenderer } from "../universe/renderer";
 import { mulberry32 } from "../universe/rng";
 import {
+  discoveredStarShapes,
+  starShapeCounts,
+  totalDiscoveredStarShapes,
+} from "../universe/star-discovery";
+import {
+  drawStarBody,
+  listStarTiers,
+  STAR_SHAPES_BY_TIER,
+  STAR_SHAPE_NAME,
+  STAR_SHAPE_RARITY,
+  type StarShape as StarShapeKind,
+} from "../universe/star-shapes";
+import {
   DISPLAY_H,
   DISPLAY_W,
   UNIVERSE_H,
@@ -61,7 +74,7 @@ interface CodexPayload {
 // Sub-tab state lives at module scope so it survives tab switches without
 // resetting to the planet grid. The codex re-renders on every activate so
 // numeric badges stay fresh either way.
-type CodexSub = "planets" | "constellations";
+type CodexSub = "planets" | "stars" | "constellations";
 let currentSub: CodexSub = "planets";
 let subtabsWired = false;
 
@@ -72,9 +85,12 @@ export async function activateCodex(): Promise<void> {
 
 export async function refresh(): Promise<void> {
   await Promise.all([refreshPlanetCounts(), refreshConstellationCount()]);
+  refreshStarCount();
   applySubtabUi();
   if (currentSub === "planets") {
     await refreshPlanetGrid();
+  } else if (currentSub === "stars") {
+    refreshStarGrid();
   } else {
     await refreshConstellationGrid();
   }
@@ -110,6 +126,13 @@ async function refreshConstellationCount(): Promise<void> {
   }
 }
 
+function refreshStarCount(): void {
+  const $starsNum = document.getElementById("codex-stars-num");
+  if (!$starsNum) return;
+  const found = totalDiscoveredStarShapes();
+  $starsNum.textContent = `${found}/${TOTAL_STAR_SHAPES}`;
+}
+
 function applySubtabUi(): void {
   document
     .querySelectorAll<HTMLButtonElement>("#codex-subtabs button")
@@ -126,12 +149,16 @@ function applySubtabUi(): void {
       $total.textContent = String(lastPayload?.total_count ?? 30);
       $total.previousElementSibling?.classList.remove("hidden");
     }
+  } else if (currentSub === "stars") {
+    const found = totalDiscoveredStarShapes();
+    if ($desc) $desc.textContent = `${TOTAL_STAR_SHAPES} SHAPES · 별 도감`;
+    if ($lbl) $lbl.textContent = "DISCOVERED";
+    if ($disc) $disc.textContent = String(found);
+    if ($total) $total.textContent = String(TOTAL_STAR_SHAPES);
   } else {
     if ($desc) $desc.textContent = `${lastConstellationCount} CONSTELLATIONS · 별자리 도감`;
     if ($lbl) $lbl.textContent = "REGISTERED";
     if ($disc) $disc.textContent = String(lastConstellationCount);
-    // Hide the "/total" portion for the constellation count by setting total
-    // to empty — simpler than mutating sibling element classes.
     if ($total) $total.textContent = "";
   }
 }
@@ -160,6 +187,137 @@ async function refreshPlanetGrid(): Promise<void> {
   for (const g of lastPayload.groups) for (const c of g.cards) byKey.set(c.key, c);
   $content.innerHTML = TIER_ORDER.map((tier) => renderTier(tier, byKey)).join("");
   attachClickHandlers(byKey);
+}
+
+// ───────────────────── Star Codex sub-tab ─────────────────────
+
+// Tier → preview radius. Bigger shapes need more room so spirals + binary
+// pairs aren't crammed into the same box as a circle.
+const STAR_PREVIEW_R: Record<string, number> = {
+  common: 14,
+  rare: 16,
+  epic: 18,
+  legendary: 19,
+  mythic: 20,
+};
+
+// Excludes the legacy `comet/diamond/triangle` from the codex count; only the
+// 11 canonical shapes count toward "11/11".
+const STAR_CODEX_SHAPES: StarShapeKind[] = listStarTiers().flatMap(
+  (t) => STAR_SHAPES_BY_TIER[t].filter((s) => s !== "comet" && s !== "diamond" && s !== "triangle"),
+);
+const TOTAL_STAR_SHAPES = STAR_CODEX_SHAPES.length;
+
+function refreshStarGrid(): void {
+  const $content = document.getElementById("codex-content");
+  if (!$content) return;
+  const found = discoveredStarShapes();
+  const counts = starShapeCounts();
+  $content.innerHTML = listStarTiers()
+    .map((tier) => renderStarTier(tier, found, counts))
+    .join("");
+  // Defer canvas draws until the DOM is populated.
+  document.querySelectorAll<HTMLCanvasElement>("[data-star-shape]").forEach((el) => {
+    const shape = el.dataset.starShape as StarShapeKind | undefined;
+    const isFound = el.dataset.found === "true";
+    if (shape) drawStarCard(el, shape, isFound);
+  });
+}
+
+function renderStarTier(
+  tier: ReturnType<typeof listStarTiers>[number],
+  found: Set<StarShapeKind>,
+  counts: Map<StarShapeKind, number>,
+): string {
+  // Same shape list as STAR_CODEX_SHAPES but partitioned per tier; we don't
+  // surface comet/diamond/triangle in the codex.
+  const shapes = STAR_SHAPES_BY_TIER[tier].filter(
+    (s) => s !== "comet" && s !== "diamond" && s !== "triangle",
+  );
+  const tierLabel: Record<typeof tier, string> = {
+    common: "일반", rare: "희귀", epic: "에픽", legendary: "전설", mythic: "신화",
+  };
+  const tierCode: Record<typeof tier, string> = {
+    common: "c", rare: "u", epic: "e", legendary: "l", mythic: "m",
+  };
+  const discoveredCount = shapes.filter((s) => found.has(s)).length;
+  const cards = shapes.map((s) => renderStarCard(s, found.has(s), counts.get(s) ?? 0)).join("");
+  return `
+    <div class="tier-header">
+      <span class="tier-pip diamond-${tierCode[tier]}"></span>
+      <span class="tier-name text-${tierCode[tier]}">${tierLabel[tier].toUpperCase()}</span>
+      <span class="tier-info">${discoveredCount} / ${shapes.length}</span>
+      <span class="tier-rule"></span>
+    </div>
+    <div class="codex-grid">${cards}</div>
+  `;
+}
+
+function renderStarCard(shape: StarShapeKind, isFound: boolean, count: number): string {
+  const tier = STAR_SHAPE_RARITY[shape];
+  const tierCode: Record<typeof tier, string> = {
+    common: "c", rare: "u", epic: "e", legendary: "l", mythic: "m",
+  };
+  if (!isFound) {
+    return `
+      <div class="planet-card tier-${tierCode[tier]} locked" data-shape="${shape}">
+        <div class="planet-orb-wrap">
+          <div class="planet-orb-locked">?</div>
+        </div>
+        <div class="planet-name locked">???</div>
+        <div class="planet-meta">미발견</div>
+      </div>
+    `;
+  }
+  return `
+    <div class="planet-card tier-${tierCode[tier]}" data-shape="${shape}">
+      ${count > 1 ? `<div class="planet-count-badge">×${count}</div>` : ""}
+      <div class="planet-orb-wrap">
+        <canvas class="star-card-canvas" data-star-shape="${shape}" data-found="true"></canvas>
+      </div>
+      <div class="planet-name">${STAR_SHAPE_NAME[shape]}</div>
+      <div class="planet-meta">${tier.toUpperCase()}</div>
+    </div>
+  `;
+}
+
+function drawStarCard(canvas: HTMLCanvasElement, shape: StarShapeKind, isFound: boolean): void {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  // Star previews are ~72×72 to match the planet-orb-wrap.
+  const size = 72;
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  canvas.style.width = `${size}px`;
+  canvas.style.height = `${size}px`;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // Subtle vignette so the shape doesn't float on a flat black square.
+  const cx = size / 2, cy = size / 2;
+  {
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.55);
+    g.addColorStop(0, "rgba(255, 255, 255, 0.045)");
+    g.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+  }
+
+  const r = STAR_PREVIEW_R[STAR_SHAPE_RARITY[shape]] ?? 16;
+
+  // Halo for everything but the simplest circle so larger shapes feel alive.
+  if (shape !== "circle") {
+    const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 3.2);
+    halo.addColorStop(0, "rgba(255, 235, 200, 0.30)");
+    halo.addColorStop(0.4, "rgba(255, 235, 200, 0.10)");
+    halo.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 3.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  drawStarBody(ctx, cx, cy, r, shape, isFound ? "rgba(255, 245, 220, 0.95)" : "rgba(160, 165, 180, 0.55)");
 }
 
 function renderTier(rarity: Rarity, byKey: Map<string, CodexCard>): string {

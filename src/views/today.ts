@@ -12,6 +12,11 @@ import { UniverseInteraction } from "../universe/interaction";
 import { planetSvg } from "../universe/planet-svg";
 import { UniverseRenderer, type Scene } from "../universe/renderer";
 import {
+  mountSleepingUniverse,
+  type SleepingHandle,
+} from "../universe/sleeping-universe";
+import { recordStarsEncountered } from "../universe/star-discovery";
+import {
   UNIVERSE_H,
   UNIVERSE_W,
   type Constellation,
@@ -44,7 +49,7 @@ const LAYOUT_BADGE: Record<string, string> = {
   core_heavy: "CORE",
 };
 
-const BLACKHOLE_TAGLINE = "오늘은 쉬어가요. · 블랙홀도 우주의 일부입니다.";
+const SLEEPING_TAGLINE = "오늘은 쉬어가요 · 내일 다시 별을 만들어요";
 const NORMAL_HINT =
   `<b>별 클릭</b> 별자리 만들기<span class="sep">·</span>` +
   `<b>휠</b> 줌<span class="sep">·</span><b>드래그</b> 이동`;
@@ -197,8 +202,11 @@ export function deactivateToday(): void {
     state.pollTimer = null;
   }
   // Stop the rAF loop while another tab is active — saves battery and avoids
-  // off-screen work.
+  // off-screen work. Also dispose the sleeping canvas so we don't burn CPU
+  // animating a moon nobody's looking at.
   state.renderer?.stop();
+  sleepingHandle?.dispose();
+  sleepingHandle = null;
   detachEscListener();
 }
 
@@ -251,6 +259,10 @@ async function poll() {
     state.planets = payload.planets ?? [];
     state.nebulae = payload.nebulae ?? [];
     state.constellations = payload.constellations ?? [];
+
+    // Record every star we just received as encountered — drives the Star
+    // Codex unlock state. Idempotent so re-polls don't double-count.
+    recordStarsEncountered(state.stars);
 
     // (Re)seed effect layers when the universe seed changes — i.e. on first
     // load and again at day rollover. Keep existing layers otherwise so dust
@@ -311,15 +323,25 @@ function paintHud(payload: UniversePayload) {
       payload.universe.galaxy_type ?? classifyGalaxy(payload.universe.star_count);
     $galaxy.textContent = GALAXY_LABEL[g];
   }
-  applyBlackholeMood(payload.universe.star_count === 0);
+  applySleepingMood(payload.universe.star_count === 0);
 }
 
-function applyBlackholeMood(isBlackhole: boolean) {
-  const wrap = document.querySelector(".universe-wrap");
-  if (wrap) wrap.classList.toggle("blackhole-day", isBlackhole);
+// Track the mounted sleeping canvas so we can dispose its rAF when the
+// day rolls over and stars start showing up again.
+let sleepingHandle: SleepingHandle | null = null;
+
+function applySleepingMood(isSleeping: boolean) {
+  const wrap = document.querySelector(".universe-wrap") as HTMLElement | null;
+  if (wrap) wrap.classList.toggle("sleeping-day", isSleeping);
   const hint = document.querySelector(".hint-row");
-  if (!hint) return;
-  hint.innerHTML = isBlackhole ? BLACKHOLE_TAGLINE : NORMAL_HINT;
+  if (hint) hint.innerHTML = isSleeping ? SLEEPING_TAGLINE : NORMAL_HINT;
+
+  if (isSleeping) {
+    if (!sleepingHandle && wrap) sleepingHandle = mountSleepingUniverse(wrap);
+  } else if (sleepingHandle) {
+    sleepingHandle.dispose();
+    sleepingHandle = null;
+  }
 }
 
 function paintMoodBadge(payload: UniversePayload, mood: Mood | null) {
