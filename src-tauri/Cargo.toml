@@ -1,6 +1,6 @@
 [package]
 name = "tokenova"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 description = "AI 코딩 토큰을 매일 새 우주의 별과 행성으로 시각화하는 트레이 앱"
 authors = ["junki.ahn"]
 edition = "2021"
