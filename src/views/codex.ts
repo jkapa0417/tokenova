@@ -986,10 +986,12 @@ function paintGalaxyMode(canvas: HTMLCanvasElement, h: ConstellationDetailHandle
   paintGalaxyModePlanetPins(view, h.galaxyPayload.planets);
 }
 
-const PIN_BASE_PX = 26;
+// Match Today's pin sizing — pin box is 96 CSS px so the canvas backing is
+// 1:1 at universe zoom 8 (no upscale blur).
+const PIN_BASE_PX = 96;
 const PIN_MIN_PX = 14;
 const PIN_MAX_PX = 96;
-const PIN_SPRITE_HALF_PX = 22;
+const PIN_SPRITE_HALF_PX = 81;
 
 let constPinCanvases: PlanetCanvasHandle[] = [];
 
@@ -1008,7 +1010,7 @@ function paintGalaxyModePlanetPins(
   const visibleH = UNIVERSE_H / view.zoom;
   const sizePx = Math.max(
     PIN_MIN_PX,
-    Math.min(PIN_MAX_PX, PIN_BASE_PX + (view.zoom - 1) * 10),
+    Math.min(PIN_MAX_PX, 26 + (view.zoom - 1) * 10),
   );
   const pinScale = sizePx / PIN_BASE_PX;
   const rect = layer.getBoundingClientRect();
@@ -1045,7 +1047,7 @@ function renderConstPinHtml(p: Planet): string {
   const prob = TIER_PROBABILITY[p.rarity];
   const displayName = spec?.name ?? p.planet_type;
   const orbHost = spec
-    ? `<div data-planet-orb data-orb-id="${spec.id}" data-orb-size="26"></div>`
+    ? `<div class="pin-orb-host" data-planet-orb data-orb-id="${spec.id}" data-orb-size="96"></div>`
     : "";
   return `
     <div class="planet-pin"

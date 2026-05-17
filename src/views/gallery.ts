@@ -799,7 +799,7 @@ function openCodexForPlanet(planet: Planet) {
 function renderPinHtml(p: Planet): string {
   const spec = PLANET_BY_ID[p.planet_type];
   const orb = spec
-    ? `<div data-planet-orb data-orb-id="${spec.id}" data-orb-size="26"></div>`
+    ? `<div class="pin-orb-host" data-planet-orb data-orb-id="${spec.id}" data-orb-size="96"></div>`
     : "";
   const tierLabel = RARITY_LABEL[p.rarity];
   const prob = TIER_PROBABILITY[p.rarity];
@@ -821,10 +821,12 @@ function renderPinHtml(p: Planet): string {
   `;
 }
 
-const PIN_BASE_PX = 26;
+// Match Today's pin sizing — see today.ts for the rationale (canvas backing
+// at logical 96 keeps zoom-in sharp; scale always downsamples).
+const PIN_BASE_PX = 96;
 const PIN_MIN_PX = 14;
 const PIN_MAX_PX = 96;
-const PIN_SPRITE_HALF_PX = 22;
+const PIN_SPRITE_HALF_PX = 81;
 
 function updateGalPlanetPins(view: ReturnType<typeof makeView>) {
   const layer = document.getElementById("gal-planet-overlay");
@@ -833,7 +835,7 @@ function updateGalPlanetPins(view: ReturnType<typeof makeView>) {
   const visibleH = UNIVERSE_H / view.zoom;
   const sizePx = Math.max(
     PIN_MIN_PX,
-    Math.min(PIN_MAX_PX, PIN_BASE_PX + (view.zoom - 1) * 10),
+    Math.min(PIN_MAX_PX, 26 + (view.zoom - 1) * 10),
   );
   const pinScale = sizePx / PIN_BASE_PX;
   const rect = layer.getBoundingClientRect();
