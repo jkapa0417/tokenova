@@ -85,6 +85,9 @@ pub fn add_stars(db: &Arc<Db>, universe: &Universe, count: u32) -> Result<Vec<St
             created_at: Utc::now(),
         });
     }
+    // 100-star milestone — `first_universe` (첫 우주 형성).
+    let total = start_idx + count;
+    let _ = crate::engine::achievements::on_universe_star_count(db, total);
     Ok(out)
 }
 

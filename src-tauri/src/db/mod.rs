@@ -783,6 +783,14 @@ impl Db {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    /// Number of distinct planet types ever discovered — drives the
+    /// codex_quarter / codex_half / codex_complete achievement tiers.
+    pub fn count_codex_discovered_types(&self) -> Result<u32> {
+        let conn = self.conn.lock().expect("db poisoned");
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM codex", [], |row| row.get(0))?;
+        Ok(n.max(0) as u32)
+    }
+
     // ---------- Achievements ----------
 
     /// Record an achievement key. Returns `true` if newly recorded, `false`

@@ -156,8 +156,13 @@ pub async fn save_constellation(
         .map_err(|e| e.to_string())?;
     let db = db.inner().clone();
     tokio::task::spawn_blocking(move || {
-        db.insert_constellation(universe_id, &name, &color, &star_ids, preset_id.as_deref())
-            .map_err(|e| e.to_string())
+        let row_id = db
+            .insert_constellation(universe_id, &name, &color, &star_ids, preset_id.as_deref())
+            .map_err(|e| e.to_string())?;
+        // Award the "첫 별자리" achievement once. Idempotent — `mark` is a
+        // one-shot insert.
+        let _ = crate::engine::achievements::on_constellation_saved(&db);
+        Ok(row_id)
     })
     .await
     .map_err(|e| e.to_string())?

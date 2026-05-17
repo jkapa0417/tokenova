@@ -209,6 +209,11 @@ export function deactivateToday(): void {
   sleepingHandle?.dispose();
   sleepingHandle = null;
   disposeAllPlanetOrbs(pinCanvases);
+  // Reset the id cache so the next activation rebuilds the pin DOM from
+  // scratch — otherwise the "skip rebuild when ids match" optimization
+  // sees the same planet list, takes the fast path, and leaves the
+  // overlay empty because the canvases were just disposed.
+  pinPlanetIds = [];
   detachEscListener();
 }
 
@@ -529,15 +534,29 @@ async function commitCurrent(): Promise<void> {
 // every time the camera moves. Using DOM (not canvas) lets us hover, show a
 // tooltip, and reuse the exact same procedural SVG that Codex renders.
 
-const PIN_BASE_PX = 26;
+// Pin wrap is now 96 CSS px so the canvas inside has matching backing
+// resolution. CSS transform: scale only ever DOWNSCALES (0.14-1.0), which
+// the GPU does smoothly — no upscale blur at high universe zoom.
+const PIN_BASE_PX = 96;
 const PIN_MIN_PX = 14;
 const PIN_MAX_PX = 96;
 
 let pinCanvases: PlanetCanvasHandle[] = [];
+let pinPlanetIds: number[] = [];
 
 function rebuildPlanetPins(planets: Planet[]) {
   const layer = document.getElementById("planet-overlay");
   if (!layer) return;
+  // Skip the heavy dispose-and-remount when the universe's planet list
+  // hasn't actually changed — every 3 s poll() was rebuilding all pins
+  // unconditionally, which restarted every PlanetCanvas's rAF and gave a
+  // visible "all planets flash from the start" effect.
+  const nextIds = planets.map((p) => p.id);
+  if (sameIdList(nextIds, pinPlanetIds)) {
+    updatePlanetPins();
+    return;
+  }
+  pinPlanetIds = nextIds;
   disposeAllPlanetOrbs(pinCanvases);
   layer.innerHTML = planets.map(renderPinHtml).join("");
   layer.querySelectorAll<HTMLElement>(".planet-pin").forEach((el) => {
@@ -552,10 +571,16 @@ function rebuildPlanetPins(planets: Planet[]) {
   updatePlanetPins();
 }
 
+function sameIdList(a: number[], b: number[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 function renderPinHtml(p: Planet): string {
   const spec = PLANET_BY_ID[p.planet_type];
   const orb = spec
-    ? `<div data-planet-orb data-orb-id="${spec.id}" data-orb-size="26"></div>`
+    ? `<div class="pin-orb-host" data-planet-orb data-orb-id="${spec.id}" data-orb-size="96"></div>`
     : "";
   const isNew = !p.acknowledged_at;
   const tierLabel = RARITY_LABEL[p.rarity];
@@ -579,9 +604,10 @@ function renderPinHtml(p: Planet): string {
   `;
 }
 
-// Halo extends `inset: -6px` and the NEW badge pokes ~10 px past the corner,
-// so the effective sprite half-extent is larger than the 13 px pin radius.
-const PIN_SPRITE_HALF_PX = 22;
+// Visual sprite half-extent at pinScale=1.0 (universe zoom 8) = pin box 96
+// + halo + badge ≈ 162 visual px wide, half ≈ 81. spriteHalfPx is scaled
+// by pinScale so culling is correct at any zoom.
+const PIN_SPRITE_HALF_PX = 81;
 
 function updatePlanetPins() {
   if (!state) return;
@@ -590,10 +616,12 @@ function updatePlanetPins() {
   const view = state.view;
   const visibleW = UNIVERSE_W / view.zoom;
   const visibleH = UNIVERSE_H / view.zoom;
+  // Visual size grows from 26 (zoom 1) to 96 (zoom 8); PIN_BASE_PX (96) is
+  // the pin's CSS box, so pinScale = visualSize / 96 sits in 0.27..1.0.
   const sizePx = clamp(
     PIN_MIN_PX,
     PIN_MAX_PX,
-    PIN_BASE_PX + (view.zoom - 1) * 10,
+    26 + (view.zoom - 1) * 10,
   );
   const pinScale = sizePx / PIN_BASE_PX;
 

@@ -4,6 +4,10 @@
 // their daily universes. We persist the Set across launches in
 // localStorage — no backend changes needed since shape is derived purely
 // from `Star.id` + `Star.radius`.
+//
+// Counts are derived per-universe from the live star list, NOT cumulatively
+// over all polls. The earlier cumulative implementation inflated counts
+// (every 3 s poll re-added every star), producing values like 1,089,790.
 
 import { shapeForStar, type StarShape } from "./star-shapes";
 import type { Star } from "./types";
@@ -11,8 +15,7 @@ import type { Star } from "./types";
 const STORAGE_KEY = "tokenova.star-codex.discovered.v1";
 
 let cache: Set<StarShape> | null = null;
-let cacheCounts: Map<StarShape, number> | null = null;
-const COUNTS_KEY = "tokenova.star-codex.counts.v1";
+let liveCounts: Map<StarShape, number> = new Map();
 
 function loadCache(): Set<StarShape> {
   if (cache) return cache;
@@ -25,44 +28,31 @@ function loadCache(): Set<StarShape> {
   return cache;
 }
 
-function loadCounts(): Map<StarShape, number> {
-  if (cacheCounts) return cacheCounts;
-  try {
-    const raw = localStorage.getItem(COUNTS_KEY);
-    cacheCounts = raw ? new Map(JSON.parse(raw)) : new Map();
-  } catch {
-    cacheCounts = new Map();
-  }
-  return cacheCounts;
-}
-
 function persist(): void {
   try {
     if (cache) localStorage.setItem(STORAGE_KEY, JSON.stringify([...cache]));
-    if (cacheCounts) {
-      localStorage.setItem(COUNTS_KEY, JSON.stringify([...cacheCounts.entries()]));
-    }
   } catch {
     /* quota / disabled — silently skip */
   }
 }
 
-/** Record every star in the given list as encountered. Idempotent. */
+/** Record every star in the given list as encountered (for unlocking) and
+ *  refresh the per-shape count from the *current* universe — not cumulative.
+ */
 export function recordStarsEncountered(stars: Star[]): void {
-  if (stars.length === 0) return;
   const set = loadCache();
-  const counts = loadCounts();
-  let changed = false;
+  const fresh = new Map<StarShape, number>();
+  let unlockedAny = false;
   for (const s of stars) {
     const shape = shapeForStar(s.id, s.radius);
+    fresh.set(shape, (fresh.get(shape) ?? 0) + 1);
     if (!set.has(shape)) {
       set.add(shape);
-      changed = true;
+      unlockedAny = true;
     }
-    counts.set(shape, (counts.get(shape) ?? 0) + 1);
-    changed = true;
   }
-  if (changed) persist();
+  liveCounts = fresh;
+  if (unlockedAny) persist();
 }
 
 export function discoveredStarShapes(): Set<StarShape> {
@@ -70,7 +60,7 @@ export function discoveredStarShapes(): Set<StarShape> {
 }
 
 export function starShapeCounts(): Map<StarShape, number> {
-  return loadCounts();
+  return liveCounts;
 }
 
 export function totalDiscoveredStarShapes(): number {

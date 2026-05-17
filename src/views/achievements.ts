@@ -40,35 +40,86 @@ const ICONS = {
 } as const;
 
 const META: Record<string, Meta> = {
+  // ── 시작 (start) ──
   first_star: {
-    category: "starter",
-    rarity: "common",
+    category: "starter", rarity: "common", icon: "star",
     description: "첫 토큰이 별이 되어 우주에 떠올랐습니다.",
-    icon: "star",
   },
   first_planet: {
-    category: "starter",
-    rarity: "common",
+    category: "starter", rarity: "common", icon: "diamond",
     description: "한 세션에서 5,000 토큰을 채워 첫 행성을 발견했습니다.",
-    icon: "diamond",
   },
-  first_black_hole: {
-    category: "time",
-    rarity: "rare",
-    description: "토큰 한 톨도 쓰지 않은 하루. 블랙홀의 날.",
-    icon: "moon",
+  first_universe: {
+    category: "starter", rarity: "common", icon: "compass",
+    description: "하루 100별을 넘겨 첫 우주를 형성했습니다.",
   },
-  first_mega_galaxy: {
-    category: "collection",
-    rarity: "epic",
-    description: "별 300개 이상을 채워 거대 은하를 형성했습니다.",
-    icon: "compass",
+  first_constellation: {
+    category: "starter", rarity: "common", icon: "constellation",
+    description: "별 둘 이상을 이어 첫 별자리를 만들었습니다.",
+  },
+
+  // ── 수집 (collect) ──
+  codex_quarter: {
+    category: "collection", rarity: "common", icon: "diamond",
+    description: "도감 8종 발견 — 25 % 도달.",
+  },
+  codex_half: {
+    category: "collection", rarity: "rare", icon: "diamond",
+    description: "도감 15종 발견 — 절반 채움.",
+  },
+  codex_complete: {
+    category: "collection", rarity: "mythic", icon: "shield",
+    description: "30종 행성을 모두 발견해 도감을 완성했습니다.",
   },
   first_rare_planet: {
-    category: "collection",
-    rarity: "rare",
+    category: "collection", rarity: "rare", icon: "diamond",
     description: "희귀 등급 이상의 행성을 처음 만났습니다.",
-    icon: "diamond",
+  },
+  first_legendary_planet: {
+    category: "collection", rarity: "legendary", icon: "star",
+    description: "전설(Legendary) 등급 행성 발견.",
+  },
+  first_mythic_planet: {
+    category: "collection", rarity: "mythic", icon: "shield",
+    description: "신화(Mythic) 등급 행성 발견 — 가장 드문 만남.",
+  },
+
+  // ── 시간 (time) ──
+  first_black_hole: {
+    category: "time", rarity: "rare", icon: "moon",
+    description: "토큰 한 톨도 쓰지 않은 하루 — 잠든 우주의 날.",
+  },
+  first_mega_galaxy: {
+    category: "time", rarity: "epic", icon: "flame",
+    description: "하루 별 캡 1000에 도달해 거대 은하를 형성.",
+  },
+
+  // ── 리듬 (rhythm) — 시간대 누적, 아직 엔진 미구현 ──
+  night_owl: {
+    category: "rhythm", rarity: "rare", icon: "moon",
+    description: "자정~새벽 4시 작업 누적 10시간.",
+  },
+  early_bird: {
+    category: "rhythm", rarity: "rare", icon: "sunrise",
+    description: "오전 5시~8시 작업 누적 10시간.",
+  },
+
+  // ── 기념 (anniversary) — 연속 기록, 아직 엔진 미구현 ──
+  streak_7: {
+    category: "anniversary", rarity: "common", icon: "hourglass",
+    description: "7일 연속 우주를 형성했습니다.",
+  },
+  streak_30: {
+    category: "anniversary", rarity: "rare", icon: "hourglass",
+    description: "30일 연속 우주를 형성했습니다.",
+  },
+  streak_100: {
+    category: "anniversary", rarity: "epic", icon: "shield",
+    description: "100일 연속 우주를 형성했습니다.",
+  },
+  streak_365: {
+    category: "anniversary", rarity: "legendary", icon: "shield",
+    description: "365일 연속 — 한 해를 우주로 채웠습니다.",
   },
 };
 
