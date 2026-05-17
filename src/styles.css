@@ -130,6 +130,13 @@ button {
 
 .topbar-spacer { flex: 1; }
 
+/* Windows-only: when the topbar acts as a drag handle (see
+   enableWindowsDragRegion in main.ts), show the move cursor on empty
+   topbar area. Tab buttons and the token pill keep their own cursors. */
+body.os-windows .topbar { cursor: move; }
+body.os-windows .topbar .tab,
+body.os-windows .topbar .token-pill { cursor: pointer; }
+
 .token-pill {
   display: flex;
   align-items: center;

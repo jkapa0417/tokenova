@@ -34,6 +34,23 @@ function isTabKey(value: string | null | undefined): value is TabKey {
     || value === "gallery" || value === "settings";
 }
 
+/// Windows users expect to be able to drag the tray popover to a new position
+/// (no native titlebar exists with `decorations: false`). Add Tauri's drag
+/// region attribute to the topbar so click-and-hold there moves the OS window.
+/// Tab buttons inside the topbar still receive their click events because the
+/// drag only kicks in on mousedown over non-interactive area. macOS / Linux
+/// stay anchored to the tray icon, which matches platform convention there.
+function enableWindowsDragRegion(): void {
+  const ua = (navigator.userAgent || "").toLowerCase();
+  const isWindows =
+    ua.includes("windows") ||
+    /win/.test((navigator.platform || "").toLowerCase());
+  if (!isWindows) return;
+  document.querySelector(".topbar")?.setAttribute("data-tauri-drag-region", "");
+  // Subtle visual hint — empty area in the topbar shows a "move" cursor.
+  document.body.classList.add("os-windows");
+}
+
 function readHashTab(): TabKey {
   const hash = window.location.hash.replace(/^#/, "");
   return isTabKey(hash) ? hash : DEFAULT_TAB;
@@ -179,6 +196,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     attachTabClicks();
     wireGlobalModalHandlers();
+    enableWindowsDragRegion();
     void switchTab(readHashTab(), false);
     void refreshTokenPill();
     setInterval(() => void refreshTokenPill(), TOKEN_PILL_INTERVAL_MS);
