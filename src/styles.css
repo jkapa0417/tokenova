@@ -2811,3 +2811,29 @@ button {
   font-size: 10px;
   letter-spacing: 0.04em;
 }
+
+/* ───── Settings → 언어 toggle ───── */
+.settings-lang-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.settings-lang-btn {
+  flex: 1;
+  border: 0.5px solid var(--line-2);
+  background: transparent;
+  color: var(--fg-1);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: border-color 120ms, background 120ms, color 120ms;
+}
+.settings-lang-btn:hover { background: rgba(255, 255, 255, 0.04); }
+.settings-lang-btn.on {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: rgba(212, 168, 87, 0.08);
+}

@@ -34,7 +34,15 @@
           <span class="dot"></span>
           <span>Gallery</span>
         </button>
-        <button class="tab tab-icon" data-tab="settings" type="button" aria-label="설정" title="설정">
+        <button
+          class="tab tab-icon"
+          data-tab="settings"
+          type="button"
+          aria-label="설정"
+          title="설정"
+          data-i18n-attr-aria-label="nav.settings"
+          data-i18n-attr-title="nav.settings"
+        >
           <svg viewBox="0 0 16 16" width="13" height="13" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
             <circle cx="8" cy="8" r="2.4" stroke="currentColor" stroke-width="1.2" />
             <path d="M8 1.5v2M8 12.5v2M14.5 8h-2M3.5 8h-2M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4M12.6 12.6l-1.4-1.4M4.8 4.8L3.4 3.4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
@@ -43,7 +51,12 @@
 
         <div class="topbar-spacer"></div>
 
-        <div class="token-pill" id="token-pill" title="오늘 누적 토큰">
+        <div
+          class="token-pill"
+          id="token-pill"
+          title="오늘 누적 토큰"
+          data-i18n-attr-title="today.tokens_label"
+        >
           <span class="pulse"></span>
           <span id="token-pill-value">—</span>
         </div>
@@ -90,17 +103,27 @@
             <!-- Constellation drawing action bar — visible only while drawing. -->
             <div class="draw-bar" id="draw-bar" hidden>
               <div class="draw-bar-row" id="draw-bar-count-row">
-                <span class="draw-bar-label">
-                  별 <b id="draw-bar-count">0</b>개 연결됨<span
-                    class="muted"
-                    id="draw-bar-muted"
-                    hidden
-                  > · 최소 2개 필요</span>
-                </span>
-                <button class="draw-bar-btn ghost" id="draw-bar-cancel" type="button">취소</button>
-                <button class="draw-bar-btn primary" id="draw-bar-save" type="button" disabled>
-                  별자리 등록
-                </button>
+                <!-- Label text is filled by today.ts via t('today.draw_bar.connected_n', {count})
+                     so we can produce locale-correct grammar — Korean wraps the
+                     count inline ("별 N개 연결됨") while English puts it up front
+                     ("N stars connected"). The original DOM kept a separate
+                     <b id="draw-bar-count"> child which we still expose via
+                     innerHTML so existing handlers (if any) keep working. -->
+                <span class="draw-bar-label" id="draw-bar-label"></span>
+                <span class="muted" id="draw-bar-muted" hidden data-i18n="today.draw_bar.need_two"> · 최소 2개 필요</span>
+                <button
+                  class="draw-bar-btn ghost"
+                  id="draw-bar-cancel"
+                  type="button"
+                  data-i18n="today.draw_bar.cancel"
+                >취소</button>
+                <button
+                  class="draw-bar-btn primary"
+                  id="draw-bar-save"
+                  type="button"
+                  disabled
+                  data-i18n="today.draw_bar.save"
+                >별자리 등록</button>
               </div>
               <div class="draw-bar-row" id="draw-bar-name-row" hidden>
                 <input
@@ -109,18 +132,32 @@
                   type="text"
                   maxlength="20"
                   placeholder="자동으로 지어집니다"
+                  data-i18n-attr-placeholder="today.draw_bar.name_placeholder"
                   lang="ko"
                   autocomplete="off"
                   autocorrect="off"
                   autocapitalize="off"
                   spellcheck="false"
                 />
-                <button class="draw-bar-btn ghost" id="draw-bar-back" type="button">뒤로</button>
-                <button class="draw-bar-btn primary" id="draw-bar-commit" type="button">등록</button>
+                <button
+                  class="draw-bar-btn ghost"
+                  id="draw-bar-back"
+                  type="button"
+                  data-i18n="today.draw_bar.back"
+                >뒤로</button>
+                <button
+                  class="draw-bar-btn primary"
+                  id="draw-bar-commit"
+                  type="button"
+                  data-i18n="today.draw_bar.commit"
+                >등록</button>
               </div>
-              <div class="draw-bar-hint" id="draw-bar-hint" hidden>
-                이름은 비워두면 자동으로 지어집니다.
-              </div>
+              <div
+                class="draw-bar-hint"
+                id="draw-bar-hint"
+                hidden
+                data-i18n="today.draw_bar.hint"
+              >이름은 비워두면 자동으로 지어집니다.</div>
             </div>
           </div>
 
@@ -142,7 +179,11 @@
                 <span class="gtype" id="hud-galaxy">—</span>
               </span>
             </div>
-            <div class="session-meta" id="hud-session">세션 없음</div>
+            <div
+              class="session-meta"
+              id="hud-session"
+              data-i18n="today.session_none"
+            >세션 없음</div>
             <div class="hint-row">
               <b>WHEEL</b> ZOOM<span class="sep">·</span><b>DRAG</b> PAN<span class="sep">·</span><b>CLICK</b> CONSTELLATION
             </div>
@@ -166,13 +207,16 @@
             </div>
             <div class="codex-subtabs" id="codex-subtabs">
               <button class="on" data-sub="planets" type="button">
-                행성 <span class="num" id="codex-planets-num">0/30</span>
+                <span data-i18n="codex.summary.planets">행성</span>
+                <span class="num" id="codex-planets-num">0/30</span>
               </button>
               <button data-sub="stars" type="button">
-                별 <span class="num" id="codex-stars-num">0/11</span>
+                <span data-i18n="codex.summary.stars">별</span>
+                <span class="num" id="codex-stars-num">0/11</span>
               </button>
               <button data-sub="constellations" type="button">
-                별자리 <span class="num" id="codex-const-num">0</span>
+                <span data-i18n="codex.summary.constellations">별자리</span>
+                <span class="num" id="codex-const-num">0</span>
               </button>
             </div>
             <div id="codex-content"></div>
@@ -193,12 +237,12 @@
               </div>
             </div>
             <div class="ach-cat-tabs" id="ach-cat-tabs">
-              <button class="ach-cat on" data-cat="all" type="button">전체</button>
-              <button class="ach-cat" data-cat="starter" type="button">시작</button>
-              <button class="ach-cat" data-cat="collection" type="button">수집</button>
-              <button class="ach-cat" data-cat="time" type="button">시간</button>
-              <button class="ach-cat" data-cat="rhythm" type="button">리듬</button>
-              <button class="ach-cat" data-cat="anniversary" type="button">기념</button>
+              <button class="ach-cat on" data-cat="all" type="button" data-i18n="achievements.category.all">전체</button>
+              <button class="ach-cat" data-cat="starter" type="button" data-i18n="achievements.category.start">시작</button>
+              <button class="ach-cat" data-cat="collection" type="button" data-i18n="achievements.category.collect">수집</button>
+              <button class="ach-cat" data-cat="time" type="button" data-i18n="achievements.category.time">시간</button>
+              <button class="ach-cat" data-cat="rhythm" type="button" data-i18n="achievements.category.rhythm">리듬</button>
+              <button class="ach-cat" data-cat="anniversary" type="button" data-i18n="achievements.category.milestone">기념</button>
             </div>
             <ul class="ach-list" id="ach-list"></ul>
           </div>
@@ -213,9 +257,9 @@
                 <div class="desc">365 DAYS COLLECTION</div>
               </div>
               <div class="seg" id="gallery-range">
-                <button data-range="week" type="button">1주</button>
-                <button class="on" data-range="month" type="button">1개월</button>
-                <button data-range="all" type="button">전체</button>
+                <button data-range="week" type="button" data-i18n="gallery.range.week">1주</button>
+                <button class="on" data-range="month" type="button" data-i18n="gallery.range.month">1개월</button>
+                <button data-range="all" type="button" data-i18n="gallery.range.all">전체</button>
               </div>
             </div>
 
@@ -229,35 +273,56 @@
           <div class="scroll">
             <div class="page-head">
               <div>
-                <h1>설정</h1>
-                <div class="desc">LLM PROVIDERS · WATCH PATHS</div>
+                <h1 data-i18n="settings.title">설정</h1>
+                <div class="desc" data-i18n="settings.desc">LLM PROVIDERS · WATCH PATHS</div>
               </div>
               <div class="right">
-                <button class="settings-refresh" id="settings-refresh" type="button">
-                  새로고침
-                </button>
+                <button
+                  class="settings-refresh"
+                  id="settings-refresh"
+                  type="button"
+                  data-i18n="settings.refresh"
+                >새로고침</button>
               </div>
             </div>
-            <div class="settings-section-title">LLM Providers</div>
-            <div class="settings-section-desc">
-              Tokenova가 토큰 사용을 추적하는 경로입니다. 기본 경로를 사용하지 않으면 직접 등록하세요.
-              <b>경로 변경은 앱 재시작 후 적용</b>됩니다.
+            <div class="settings-section-title" data-i18n="settings.providers.title">LLM Providers</div>
+            <div class="settings-section-desc" id="settings-providers-desc">
+              <span data-i18n="settings.providers.desc">Tokenova가 토큰 사용을 추적하는 경로입니다. 기본 경로를 사용하지 않으면 직접 등록하세요.</span>
+              <b data-i18n="settings.providers.desc_restart">경로 변경은 앱 재시작 후 적용</b>
             </div>
             <div id="settings-providers"></div>
 
-            <div class="settings-section-title" style="margin-top: 24px;">정보</div>
+            <div class="settings-section-title" style="margin-top: 24px;" data-i18n="settings.language.title">언어</div>
+            <div class="settings-section-desc" data-i18n="settings.language.desc">앱 전체 표시 언어. 적용 즉시 반영됩니다.</div>
+            <div class="settings-lang-row">
+              <button
+                class="settings-lang-btn"
+                id="settings-lang-ko"
+                type="button"
+                data-locale="ko"
+                data-i18n="settings.language.ko"
+              >한국어</button>
+              <button
+                class="settings-lang-btn"
+                id="settings-lang-en"
+                type="button"
+                data-locale="en"
+                data-i18n="settings.language.en"
+              >English</button>
+            </div>
+
+            <div class="settings-section-title" style="margin-top: 24px;" data-i18n="settings.about.title">정보</div>
             <div class="settings-about">
               <div class="settings-about-row">
-                <span class="settings-about-label">버전</span>
+                <span class="settings-about-label" data-i18n="settings.about.version_label">버전</span>
                 <span class="settings-about-value" id="settings-version">—</span>
                 <button
                   class="settings-update-btn"
                   id="settings-update-btn"
                   type="button"
                   hidden
-                >
-                  업데이트 하기
-                </button>
+                  data-i18n="settings.about.update_button"
+                >업데이트 하기</button>
               </div>
               <div class="settings-about-row" id="settings-update-status" hidden></div>
             </div>

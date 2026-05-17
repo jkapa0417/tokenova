@@ -5,6 +5,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
+import { getLocale, t } from "../i18n";
+
 type Category = "starter" | "collection" | "time" | "rhythm" | "anniversary";
 type ActiveTab = Category | "all";
 
@@ -18,7 +20,6 @@ interface AchievementCard {
 interface Meta {
   category: Category;
   rarity: string;
-  description: string;
   /** Key into `ICONS` — SVG path data for an inline 24×24 viewBox icon. */
   icon: keyof typeof ICONS;
 }
@@ -39,97 +40,37 @@ const ICONS = {
   sunrise:       "M3 18H21M5 14L12 7L19 14M9 18V15M15 18V15",
 } as const;
 
+// Display strings (name + description) for each achievement live in the i18n
+// dict under `achievements.list.<key>.{name,desc}`. Only the structural
+// metadata (category, rarity tag, icon) stays here.
 const META: Record<string, Meta> = {
-  // ── 시작 (start) ──
-  first_star: {
-    category: "starter", rarity: "common", icon: "star",
-    description: "첫 토큰이 별이 되어 우주에 떠올랐습니다.",
-  },
-  first_planet: {
-    category: "starter", rarity: "common", icon: "diamond",
-    description: "한 세션에서 5,000 토큰을 채워 첫 행성을 발견했습니다.",
-  },
-  first_universe: {
-    category: "starter", rarity: "common", icon: "compass",
-    description: "하루 100별을 넘겨 첫 우주를 형성했습니다.",
-  },
-  first_constellation: {
-    category: "starter", rarity: "common", icon: "constellation",
-    description: "별 둘 이상을 이어 첫 별자리를 만들었습니다.",
-  },
-
-  // ── 수집 (collect) ──
-  codex_quarter: {
-    category: "collection", rarity: "common", icon: "diamond",
-    description: "도감 8종 발견 — 25 % 도달.",
-  },
-  codex_half: {
-    category: "collection", rarity: "rare", icon: "diamond",
-    description: "도감 15종 발견 — 절반 채움.",
-  },
-  codex_complete: {
-    category: "collection", rarity: "mythic", icon: "shield",
-    description: "30종 행성을 모두 발견해 도감을 완성했습니다.",
-  },
-  first_rare_planet: {
-    category: "collection", rarity: "rare", icon: "diamond",
-    description: "희귀 등급 이상의 행성을 처음 만났습니다.",
-  },
-  first_legendary_planet: {
-    category: "collection", rarity: "legendary", icon: "star",
-    description: "전설(Legendary) 등급 행성 발견.",
-  },
-  first_mythic_planet: {
-    category: "collection", rarity: "mythic", icon: "shield",
-    description: "신화(Mythic) 등급 행성 발견 — 가장 드문 만남.",
-  },
-
-  // ── 시간 (time) ──
-  first_black_hole: {
-    category: "time", rarity: "rare", icon: "moon",
-    description: "토큰 한 톨도 쓰지 않은 하루 — 잠든 우주의 날.",
-  },
-  first_mega_galaxy: {
-    category: "time", rarity: "epic", icon: "flame",
-    description: "하루 별 캡 1000에 도달해 거대 은하를 형성.",
-  },
-
-  // ── 리듬 (rhythm) — 시간대 누적, 아직 엔진 미구현 ──
-  night_owl: {
-    category: "rhythm", rarity: "rare", icon: "moon",
-    description: "자정~새벽 4시 작업 누적 10시간.",
-  },
-  early_bird: {
-    category: "rhythm", rarity: "rare", icon: "sunrise",
-    description: "오전 5시~8시 작업 누적 10시간.",
-  },
-
-  // ── 기념 (anniversary) — 연속 기록, 아직 엔진 미구현 ──
-  streak_7: {
-    category: "anniversary", rarity: "common", icon: "hourglass",
-    description: "7일 연속 우주를 형성했습니다.",
-  },
-  streak_30: {
-    category: "anniversary", rarity: "rare", icon: "hourglass",
-    description: "30일 연속 우주를 형성했습니다.",
-  },
-  streak_100: {
-    category: "anniversary", rarity: "epic", icon: "shield",
-    description: "100일 연속 우주를 형성했습니다.",
-  },
-  streak_365: {
-    category: "anniversary", rarity: "legendary", icon: "shield",
-    description: "365일 연속 — 한 해를 우주로 채웠습니다.",
-  },
+  first_star:             { category: "starter",     rarity: "common",    icon: "star" },
+  first_planet:           { category: "starter",     rarity: "common",    icon: "diamond" },
+  first_universe:         { category: "starter",     rarity: "common",    icon: "compass" },
+  first_constellation:    { category: "starter",     rarity: "common",    icon: "constellation" },
+  codex_quarter:          { category: "collection",  rarity: "common",    icon: "diamond" },
+  codex_half:             { category: "collection",  rarity: "rare",      icon: "diamond" },
+  codex_complete:         { category: "collection",  rarity: "mythic",    icon: "shield" },
+  first_rare_planet:      { category: "collection",  rarity: "rare",      icon: "diamond" },
+  first_legendary_planet: { category: "collection",  rarity: "legendary", icon: "star" },
+  first_mythic_planet:    { category: "collection",  rarity: "mythic",    icon: "shield" },
+  first_black_hole:       { category: "time",        rarity: "rare",      icon: "moon" },
+  first_mega_galaxy:      { category: "time",        rarity: "epic",      icon: "flame" },
+  night_owl:              { category: "rhythm",      rarity: "rare",      icon: "moon" },
+  early_bird:             { category: "rhythm",      rarity: "rare",      icon: "sunrise" },
+  streak_7:               { category: "anniversary", rarity: "common",    icon: "hourglass" },
+  streak_30:              { category: "anniversary", rarity: "rare",      icon: "hourglass" },
+  streak_100:             { category: "anniversary", rarity: "epic",      icon: "shield" },
+  streak_365:             { category: "anniversary", rarity: "legendary", icon: "shield" },
 };
 
-const CATEGORY_LABEL: Record<ActiveTab, string> = {
-  all: "전체",
-  starter: "시작",
-  collection: "수집",
-  time: "시간",
-  rhythm: "리듬",
-  anniversary: "기념",
+const CATEGORY_KEY: Record<ActiveTab, string> = {
+  all: "achievements.category.all",
+  starter: "achievements.category.start",
+  collection: "achievements.category.collect",
+  time: "achievements.category.time",
+  rhythm: "achievements.category.rhythm",
+  anniversary: "achievements.category.milestone",
 };
 
 let activeCat: ActiveTab = "all";
@@ -182,7 +123,7 @@ function render() {
   if (filtered.length === 0) {
     $list.innerHTML = `
       <li style="text-align: center; padding: 40px 0; color: var(--fg-3); font-size: 11px; font-family: var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase;">
-        ${CATEGORY_LABEL[activeCat]} — 곧 추가 예정
+        ${t("achievements.coming_soon", { category: t(CATEGORY_KEY[activeCat]) })}
       </li>
     `;
     return;
@@ -200,11 +141,17 @@ function iconSvg(name: keyof typeof ICONS): string {
 function renderCard(a: AchievementCard): string {
   const meta = META[a.key];
   const cls = a.achieved ? "unlocked" : "locked";
+  const dateLocale = getLocale() === "ko" ? "ko-KR" : "en-US";
   const when = a.achieved && a.achieved_at
-    ? new Date(a.achieved_at).toLocaleDateString("ko-KR")
+    ? new Date(a.achieved_at).toLocaleDateString(dateLocale)
     : "—";
   const progress = a.achieved ? 100 : 0;
-  const description = meta?.description ?? "";
+  // Prefer the locale-aware name/desc from the i18n dict; fall back to the
+  // backend's display_name (Rust-side, possibly localized differently).
+  const dictName = t(`achievements.list.${a.key}.name`);
+  const name = dictName === `achievements.list.${a.key}.name` ? a.display_name : dictName;
+  const description = t(`achievements.list.${a.key}.desc`);
+  const descSafe = description === `achievements.list.${a.key}.desc` ? "" : description;
   const rarity = meta?.rarity ?? "common";
   const icon = meta?.icon ?? "star";
 
@@ -213,12 +160,12 @@ function renderCard(a: AchievementCard): string {
       <div class="ach-icon">${iconSvg(icon)}</div>
       <div class="ach-body">
         <div class="ach-row1">
-          <div class="ach-title">${a.display_name}</div>
+          <div class="ach-title">${name}</div>
           <div class="ach-rarity-tag">${rarity}</div>
         </div>
-        <div class="ach-desc">${description}</div>
+        <div class="ach-desc">${descSafe}</div>
         <div class="ach-prog-row">
-          <span>${a.achieved ? "달성" : "진행 중"}</span>
+          <span>${a.achieved ? t("achievements.earned") : t("achievements.progress")}</span>
           <div class="ach-prog-bar">
             <div class="ach-prog-fill" style="width: ${progress}%"></div>
           </div>

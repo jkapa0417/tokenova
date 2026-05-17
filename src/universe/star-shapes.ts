@@ -56,41 +56,32 @@ export const STAR_SHAPE_RARITY: Record<StarShape, StarRarity> = {
   triangle: "common",
 };
 
-/** Korean display name for each shape. Used in the Codex card. */
-export const STAR_SHAPE_NAME: Record<StarShape, string> = {
-  circle: "둥근 별",
-  spike4: "사방창 별",
-  star5: "오각 별",
-  hexagram: "육망성",
-  star7: "칠각 별",
-  spike8: "팔방성",
-  starburst: "별빛 폭발",
-  binary: "쌍성",
-  ringedStar: "고리 별",
-  pulsar: "펄사",
-  comet: "혜성",
-  galaxy: "은하",
-  diamond: "다이아",
-  triangle: "삼각 별",
-};
+// Display strings now live in the i18n dictionary under `star_shape.<key>`.
+// These Proxies preserve the original `STAR_SHAPE_NAME[shape]` access pattern
+// in the views while making lookups locale-aware at access time.
+import { t } from "../i18n";
 
-/** Short flavor blurb shown in the codex card detail. */
-export const STAR_SHAPE_DESC: Record<StarShape, string> = {
-  circle: "가장 흔한, 작고 평온한 별.",
-  spike4: "네 갈래로 또렷이 빛나는 별빛.",
-  star5: "다섯 갈래의 단정한 별 모양.",
-  hexagram: "여섯 갈래로 균형 잡힌 별.",
-  star7: "일곱 갈래의 보기 드문 별.",
-  spike8: "여덟 갈래로 폭발하는 별빛.",
-  starburst: "12개 가는 광선이 사방으로 뻗는 폭발성.",
-  binary: "서로의 중력에 묶여 함께 도는 두 별.",
-  ringedStar: "별 주위를 둘러싼 빛의 고리.",
-  pulsar: "두 갈래 빔과 부착원반을 가진 중성자별.",
-  comet: "긴 꼬리를 끄는 한 줄기 빛.",
-  galaxy: "수많은 별을 품은 작은 나선 은하.",
-  diamond: "정사각의 빛 결정.",
-  triangle: "삼각의 빛 결정.",
-};
+export const STAR_SHAPE_NAME: Record<StarShape, string> = new Proxy(
+  {} as Record<StarShape, string>,
+  {
+    get(_target, prop: string) {
+      const key = `star_shape.${prop}.name`;
+      const v = t(key);
+      return v === key ? prop : v;
+    },
+  },
+);
+
+export const STAR_SHAPE_DESC: Record<StarShape, string> = new Proxy(
+  {} as Record<StarShape, string>,
+  {
+    get(_target, prop: string) {
+      const key = `star_shape.${prop}.desc`;
+      const v = t(key);
+      return v === key ? "" : v;
+    },
+  },
+);
 
 const TIER_ORDER: StarRarity[] = ["common", "rare", "epic", "legendary", "mythic"];
 

@@ -68,8 +68,9 @@ impl Engine {
 
     fn notify_achievements(&self, earned: &achievements::EarnedAchievements) {
         for key in &earned.0 {
-            self.notifier
-                .achievement_earned(&self.app, achievements::display_name(key));
+            // Pass the achievement key directly; notifier looks up the
+            // localised display name based on the current `locale` setting.
+            self.notifier.achievement_earned(&self.app, key);
             let _ = self.app.emit("achievement_earned", key);
         }
     }
@@ -190,11 +191,14 @@ impl Engine {
             let earned = achievements::on_planet_discovered(&self.db, planet.rarity)?;
             self.notify_achievements(&earned);
 
-            let display = catalog::lookup(&planet.planet_type)
-                .map(|s| s.display_name.to_string())
-                .unwrap_or_else(|| planet.planet_type.clone());
+            let ko_default = catalog::lookup(&planet.planet_type)
+                .map(|s| s.display_name)
+                .unwrap_or(planet.planet_type.as_str());
+            let locale = crate::i18n::current_locale(&self.db);
+            let display =
+                crate::i18n::planet_display_name(locale, &planet.planet_type, ko_default);
             self.notifier
-                .planet_discovered(&self.app, &display, planet.rarity);
+                .planet_discovered(&self.app, display, planet.rarity);
             // Push to frontend so the discovery overlay can open immediately
             // (only while the popover is actually showing — listen is no-op when closed).
             let _ = self.app.emit("planet_discovered", planet);

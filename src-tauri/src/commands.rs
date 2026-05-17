@@ -389,6 +389,34 @@ pub async fn clear_provider_path(
         .map_err(|e| e.to_string())?
 }
 
+// ─────────────────────── Generic settings KV (for UI preferences) ───────────────────────
+
+#[tauri::command]
+pub async fn get_setting(
+    db: State<'_, Arc<Db>>,
+    key: String,
+) -> Result<Option<String>, String> {
+    let db = db.inner().clone();
+    tokio::task::spawn_blocking(move || db.get_setting(&key).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Persist the UI locale. Validated to one of the supported values so a
+/// malformed write can't poison the column.
+#[tauri::command]
+pub async fn set_locale(db: State<'_, Arc<Db>>, value: String) -> Result<(), String> {
+    if value != "ko" && value != "en" {
+        return Err(format!("unsupported locale: {value}"));
+    }
+    let db = db.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        db.set_setting("locale", &value).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[allow(dead_code)]
 fn _types_used(_: GalaxyType) {} // keep import alive for serde-derived structs
 

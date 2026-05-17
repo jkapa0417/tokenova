@@ -12,6 +12,8 @@
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
+import { t } from "./i18n";
+
 let dismissed = false;
 // Most recent positive `check()` result. Settings UI reads this so users who
 // pressed "나중에" on the startup banner can still trigger the install from
@@ -77,9 +79,9 @@ function showUpdateBanner(update: Update): void {
 
   const v = update.version;
   banner.innerHTML = `
-    <span class="update-banner-msg">새 버전 <b>v${escapeHtml(v)}</b> 사용 가능</span>
-    <button class="update-banner-btn ghost" data-act="later">나중에</button>
-    <button class="update-banner-btn primary" data-act="install">지금 설치</button>
+    <span class="update-banner-msg">${t("updater.available_banner", { version: escapeHtml(v) })}</span>
+    <button class="update-banner-btn ghost" data-act="later">${escapeHtml(t("updater.later"))}</button>
+    <button class="update-banner-btn primary" data-act="install">${escapeHtml(t("updater.install_now"))}</button>
   `;
 
   banner.querySelector<HTMLButtonElement>("[data-act=later]")?.addEventListener(
@@ -97,7 +99,7 @@ function showUpdateBanner(update: Update): void {
       const laterBtn = banner!.querySelector<HTMLButtonElement>("[data-act=later]");
       if (installBtn) {
         installBtn.disabled = true;
-        installBtn.textContent = "다운로드 중…";
+        installBtn.textContent = t("updater.downloading");
       }
       if (laterBtn) laterBtn.disabled = true;
       try {
@@ -109,7 +111,7 @@ function showUpdateBanner(update: Update): void {
         console.error("[updater] install failed:", e);
         if (installBtn) {
           installBtn.disabled = false;
-          installBtn.textContent = "재시도";
+          installBtn.textContent = t("updater.retry");
         }
         if (laterBtn) laterBtn.disabled = false;
       }

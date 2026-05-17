@@ -16,6 +16,7 @@ import {
 import { activateGallery, closeGalleryOverlay } from "./views/gallery";
 import { activateSettings } from "./views/settings";
 import { activateToday, deactivateToday } from "./views/today";
+import { applyDomI18n, initI18n, subscribeLocale } from "./i18n";
 import { startUpdateCheck } from "./updater";
 
 type TabKey = "today" | "codex" | "achievements" | "gallery" | "settings";
@@ -165,14 +166,23 @@ function formatCompactTokens(n: number): string {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  attachTabClicks();
-  wireGlobalModalHandlers();
-  void switchTab(readHashTab(), false);
-  void refreshTokenPill();
-  setInterval(() => void refreshTokenPill(), TOKEN_PILL_INTERVAL_MS);
-  // Fire and forget — silent failure is fine (offline / no release yet).
-  // Delay slightly so first paint isn't blocked by an HTTP request.
-  setTimeout(() => void startUpdateCheck(), 3000);
+  // Load + apply the locale BEFORE wiring views so the very first paint uses
+  // the right strings instead of flashing Korean then re-rendering. The
+  // initI18n call resolves from the persisted setting → system locale → ko.
+  void (async () => {
+    await initI18n();
+    applyDomI18n();
+    // After any locale change, re-apply static HTML strings. View-level
+    // re-renders are handled by each view subscribing to subscribeLocale.
+    subscribeLocale(() => applyDomI18n());
+
+    attachTabClicks();
+    wireGlobalModalHandlers();
+    void switchTab(readHashTab(), false);
+    void refreshTokenPill();
+    setInterval(() => void refreshTokenPill(), TOKEN_PILL_INTERVAL_MS);
+    setTimeout(() => void startUpdateCheck(), 3000);
+  })();
 });
 
 window.addEventListener("hashchange", () => {

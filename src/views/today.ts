@@ -28,17 +28,20 @@ import {
   type UniversePayload,
 } from "../universe/types";
 
+import { formatNumber, getLocale, t } from "../i18n";
+import { ko as koDict } from "../i18n/locales/ko";
+import { en as enDict } from "../i18n/locales/en";
 import { openDiscoveryOverlay, refreshDiscoveryBadge } from "./discovery";
 
 const POLL_INTERVAL_MS = 3000;
 
-const GALAXY_LABEL: Record<GalaxyType, string> = {
-  black_hole: "블랙홀",
-  nebula: "성운",
-  cluster: "별무리",
-  galaxy: "은하",
-  mega_galaxy: "거대 은하",
-  super_cluster: "초은하단",
+const GALAXY_LABEL_KEY: Record<GalaxyType, string> = {
+  black_hole: "galaxy_type.black_hole",
+  nebula: "galaxy_type.nebula",
+  cluster: "galaxy_type.cluster",
+  galaxy: "galaxy_type.galaxy",
+  mega_galaxy: "galaxy_type.mega",
+  super_cluster: "galaxy_type.super",
 };
 
 const LAYOUT_BADGE: Record<string, string> = {
@@ -50,11 +53,6 @@ const LAYOUT_BADGE: Record<string, string> = {
   core_heavy: "CORE",
 };
 
-const SLEEPING_TAGLINE = "오늘은 쉬어가요 · 내일 다시 별을 만들어요";
-const NORMAL_HINT =
-  `<b>별 클릭</b> 별자리 만들기<span class="sep">·</span>` +
-  `<b>휠</b> 줌<span class="sep">·</span><b>드래그</b> 이동`;
-
 const CONSTELLATION_COLORS = [
   { main: "rgba(255, 200, 130, 0.9)", glow: "rgba(255, 180, 80, 0.35)" },
   { main: "rgba(140, 200, 255, 0.9)", glow: "rgba(80, 150, 255, 0.35)" },
@@ -63,19 +61,15 @@ const CONSTELLATION_COLORS = [
   { main: "rgba(255, 170, 200, 0.9)", glow: "rgba(255, 100, 160, 0.35)" },
 ];
 
-const SUBJECTS = [
-  "사슴", "곰", "용", "학", "여우", "거북", "사자", "늑대",
-  "백조", "독수리", "나비", "뱀", "말", "돌고래", "호랑이",
-];
-const ADJECTIVES = [
-  "빛나는", "잠든", "날아가는", "춤추는", "고요한",
-  "깨어난", "어린", "늙은", "북쪽의", "남쪽의",
-];
-
 function autoConstellationName(): string {
-  const a = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
-  const s = SUBJECTS[Math.floor(Math.random() * SUBJECTS.length)];
-  return `${a} ${s}자리`;
+  // Pull the noun + adjective pool from the current locale dict directly so
+  // English mode produces "The Radiant Stag" instead of mixing scripts.
+  const dict = getLocale() === "ko" ? koDict : enDict;
+  const adjectives = dict.constellation_pool.adjectives;
+  const subjects = dict.constellation_pool.subjects;
+  const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+  const subject = subjects[Math.floor(Math.random() * subjects.length)];
+  return t("today.constellation.auto_name", { adjective, subject });
 }
 
 function classifyGalaxy(count: number): GalaxyType {
@@ -87,7 +81,9 @@ function classifyGalaxy(count: number): GalaxyType {
   return "super_cluster";
 }
 
-const numberFmt = new Intl.NumberFormat("ko-KR");
+// Locale-aware number formatting — `formatNumber` from "../i18n" picks ko-KR
+// or en-US based on current locale, so HUD counts switch grouping at the same
+// time as the UI strings.
 
 interface TodayState {
   stars: Star[];
@@ -309,7 +305,7 @@ async function poll() {
       $session.innerHTML =
         `<b>SESSION</b> #${session.id}` +
         `<span class="sep">·</span><b>${mins}</b>m ago` +
-        `<span class="sep">·</span><b>${numberFmt.format(session.total_tokens)}</b> TKN`;
+        `<span class="sep">·</span><b>${formatNumber(session.total_tokens)}</b> TKN`;
     } else {
       $session.innerHTML = `<b>SESSION</b> none`;
     }
@@ -329,7 +325,7 @@ function paintHud(payload: UniversePayload) {
   if ($galaxy) {
     const g =
       payload.universe.galaxy_type ?? classifyGalaxy(payload.universe.star_count);
-    $galaxy.textContent = GALAXY_LABEL[g];
+    $galaxy.textContent = t(GALAXY_LABEL_KEY[g]);
   }
   applySleepingMood(payload.universe.star_count === 0);
 }
@@ -343,7 +339,7 @@ function paintHud(payload: UniversePayload) {
 
 
 function paintTokenTicker(host: HTMLElement, value: number): void {
-  const text = numberFmt.format(value);
+  const text = formatNumber(value);
   // Build / reconcile the digit slots.
   if (host.dataset.tickerInited !== "true" || host.childElementCount === 0) {
     host.classList.add("token-ticker");
@@ -415,7 +411,7 @@ function applySleepingMood(isSleeping: boolean) {
   const wrap = document.querySelector(".universe-wrap") as HTMLElement | null;
   if (wrap) wrap.classList.toggle("sleeping-day", isSleeping);
   const hint = document.querySelector(".hint-row");
-  if (hint) hint.innerHTML = isSleeping ? SLEEPING_TAGLINE : NORMAL_HINT;
+  if (hint) hint.innerHTML = isSleeping ? t("today.sleeping") : t("today.hint");
 
   if (isSleeping) {
     if (!sleepingHandle && wrap) sleepingHandle = mountSleepingUniverse(wrap);
@@ -521,10 +517,10 @@ function refreshDrawingBar(): void {
   if (state.drawingMode === "count") {
     showCountRow();
     const count = current.starIds.length;
-    const $count = document.getElementById("draw-bar-count");
+    const $label = document.getElementById("draw-bar-label");
     const $muted = document.getElementById("draw-bar-muted");
     const $save = document.getElementById("draw-bar-save") as HTMLButtonElement | null;
-    if ($count) $count.textContent = String(count);
+    if ($label) $label.innerHTML = t("today.draw_bar.connected_n", { count });
     if ($muted) $muted.hidden = count >= 2;
     if ($save) $save.disabled = count < 2;
   } else {
@@ -791,7 +787,7 @@ function paintClusterTag(payload: UniversePayload) {
 function wireClusterNameEdit(): void {
   const $name = document.getElementById("cluster-name");
   if (!$name) return;
-  $name.title = "클릭해서 이름 수정";
+  $name.title = t("today.cluster_edit_tip");
   $name.addEventListener("click", () => {
     if ($name.classList.contains("editing")) return;
     const current = ($name.textContent ?? "").trim();
@@ -805,7 +801,7 @@ function wireClusterNameEdit(): void {
     input.spellcheck = false;
     input.setAttribute("autocorrect", "off");
     input.setAttribute("autocapitalize", "off");
-    input.placeholder = "은하 이름";
+    input.placeholder = t("today.cluster_name_placeholder");
 
     $name.classList.add("editing");
     $name.textContent = "";

@@ -16,6 +16,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 
 import {
+  formatNumber,
+  getLocale,
+  setLocale,
+  subscribeLocale,
+  t,
+} from "../i18n";
+import {
   getPendingUpdate,
   installPendingUpdate,
   subscribeUpdates,
@@ -37,6 +44,7 @@ let wiredUp = false;
 
 export async function activateSettings(): Promise<void> {
   wire();
+  syncLangButtons();
   await refresh();
   void paintVersion();
 }
@@ -51,7 +59,36 @@ function wire() {
   // (e.g. background check finishes after the Settings tab opens). The
   // subscriber fires synchronously with the current value too.
   subscribeUpdates((update) => syncUpdateRow(update?.version ?? null));
+
+  // Language toggle — swap locale on click + reflect the active button.
+  document.querySelectorAll<HTMLButtonElement>(".settings-lang-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const locale = btn.dataset.locale as "ko" | "en" | undefined;
+      if (!locale) return;
+      void setLocale(locale).then(() => {
+        // Provider cards are rebuilt via refresh() so labels swap immediately.
+        void refresh();
+        // The 정보 row contains dynamic translated text (update button) — re-paint.
+        syncUpdateRow(getPendingUpdate()?.version ?? null);
+        syncLangButtons();
+      });
+    });
+  });
+  // Re-render any externally-driven locale change too (e.g. system locale
+  // switch via another mechanism — currently only the buttons, but cheap).
+  subscribeLocale(() => {
+    void refresh();
+    syncUpdateRow(getPendingUpdate()?.version ?? null);
+    syncLangButtons();
+  });
   wiredUp = true;
+}
+
+function syncLangButtons(): void {
+  const current = getLocale();
+  document.querySelectorAll<HTMLButtonElement>(".settings-lang-btn").forEach((btn) => {
+    btn.classList.toggle("on", btn.dataset.locale === current);
+  });
 }
 
 async function paintVersion(): Promise<void> {
@@ -73,10 +110,10 @@ function syncUpdateRow(newVersion: string | null): void {
   if (newVersion) {
     $btn.hidden = false;
     $btn.disabled = false;
-    $btn.textContent = `v${newVersion} 설치`;
+    $btn.textContent = t("settings.about.update_button_install", { version: newVersion });
     if ($status) {
       $status.hidden = false;
-      $status.textContent = `새 버전 v${newVersion} 사용 가능`;
+      $status.textContent = t("settings.about.update_available", { version: newVersion });
     }
   } else {
     $btn.hidden = true;
@@ -89,19 +126,19 @@ async function runInstall(): Promise<void> {
   const $status = document.getElementById("settings-update-status");
   if (!$btn) return;
   $btn.disabled = true;
-  $btn.textContent = "다운로드 중…";
+  $btn.textContent = t("settings.about.installing");
   if ($status) {
     $status.hidden = false;
-    $status.textContent = "업데이트 다운로드 중…";
+    $status.textContent = t("settings.about.install_status");
   }
   try {
     const ok = await installPendingUpdate();
-    if (!ok && $status) $status.textContent = "사용 가능한 업데이트가 없습니다.";
+    if (!ok && $status) $status.textContent = t("settings.about.none_available");
   } catch (e) {
     console.error("installPendingUpdate:", e);
     $btn.disabled = false;
-    $btn.textContent = "재시도";
-    if ($status) $status.textContent = "설치 실패 — 다시 시도해주세요.";
+    $btn.textContent = t("settings.about.retry");
+    if ($status) $status.textContent = t("settings.about.install_failed");
   }
 }
 
@@ -114,7 +151,7 @@ async function refresh(): Promise<void> {
     attachCardHandlers();
   } catch (e) {
     console.error("get_providers_health:", e);
-    $list.innerHTML = `<div class="settings-error">상태를 불러오지 못했습니다.</div>`;
+    $list.innerHTML = `<div class="settings-error">${t("settings.providers.load_failed")}</div>`;
   }
 }
 
@@ -125,32 +162,36 @@ function healthClass(p: ProviderHealth): "ok" | "warn" | "bad" {
 }
 
 function healthLabel(p: ProviderHealth): string {
-  if (!p.exists) return "경로 없음";
-  if (!p.kind_ok) return "경로 형식 불일치";
-  if (p.events_today > 0) return `오늘 ${p.events_today.toLocaleString("ko-KR")}건`;
-  if (p.last_event_at) return `최근 ${formatAgo(p.last_event_at)}`;
-  return "활동 없음";
+  if (!p.exists) return t("settings.providers.path_missing");
+  if (!p.kind_ok) return t("settings.providers.kind_mismatch");
+  if (p.events_today > 0) return t("settings.providers.today_count", { count: formatNumber(p.events_today) });
+  if (p.last_event_at) return t("settings.providers.recent_activity", { ago: formatAgo(p.last_event_at) });
+  return t("settings.providers.no_activity");
 }
 
 function formatAgo(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (!isFinite(t)) return "—";
-  const minutes = Math.max(0, Math.round((Date.now() - t) / 60000));
-  if (minutes < 1) return "방금 전";
-  if (minutes < 60) return `${minutes}분 전`;
+  const ts = new Date(iso).getTime();
+  if (!isFinite(ts)) return "—";
+  const minutes = Math.max(0, Math.round((Date.now() - ts) / 60000));
+  if (minutes < 1) return t("settings.providers.ago_now");
+  if (minutes < 60) return t("settings.providers.ago_minutes", { minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}시간 전`;
+  if (hours < 24) return t("settings.providers.ago_hours", { hours });
   const days = Math.round(hours / 24);
-  return `${days}일 전`;
+  return t("settings.providers.ago_days", { days });
 }
 
 function renderCard(p: ProviderHealth): string {
   const cls = healthClass(p);
   const label = healthLabel(p);
   const usingCustom = !!p.custom_path;
+  const dateLocale = getLocale() === "ko" ? "ko-KR" : "en-US";
   const lastSeen = p.last_event_at
-    ? new Date(p.last_event_at).toLocaleString("ko-KR")
+    ? new Date(p.last_event_at).toLocaleString(dateLocale)
     : "—";
+  const pathTag = usingCustom
+    ? '<span class="provider-tag">CUSTOM</span>'
+    : '<span class="provider-tag muted">DEFAULT</span>';
   return `
     <div class="provider-card" data-provider="${p.id}">
       <div class="provider-head">
@@ -162,20 +203,16 @@ function renderCard(p: ProviderHealth): string {
       </div>
       <div class="provider-meta">
         <div class="provider-meta-row">
-          <span class="provider-meta-l">최근 활동</span>
+          <span class="provider-meta-l">${t("settings.providers.label_recent")}</span>
           <span class="provider-meta-v">${escapeHtml(lastSeen)}</span>
         </div>
         <div class="provider-meta-row">
-          <span class="provider-meta-l">오늘 이벤트</span>
-          <span class="provider-meta-v">${p.events_today.toLocaleString("ko-KR")}</span>
+          <span class="provider-meta-l">${t("settings.providers.label_today_events")}</span>
+          <span class="provider-meta-v">${formatNumber(p.events_today)}</span>
         </div>
       </div>
       <div class="provider-path-row">
-        <label class="provider-path-label">
-          경로 ${usingCustom
-            ? '<span class="provider-tag">CUSTOM</span>'
-            : '<span class="provider-tag muted">DEFAULT</span>'}
-        </label>
+        <label class="provider-path-label">PATH ${pathTag}</label>
         <input
           class="provider-path-input"
           type="text"
@@ -185,15 +222,15 @@ function renderCard(p: ProviderHealth): string {
         />
         <div class="provider-actions">
           <button class="provider-btn ghost" data-action="reset" type="button" ${usingCustom ? "" : "disabled"}>
-            기본값
+            ${t("settings.providers.reset")}
           </button>
           <button class="provider-btn primary" data-action="save" type="button">
-            저장
+            ${t("settings.providers.save")}
           </button>
         </div>
       </div>
       ${usingCustom
-        ? `<div class="provider-default-hint">기본: <code>${escapeHtml(p.default_path)}</code></div>`
+        ? `<div class="provider-default-hint">${t("settings.providers.default_label", { path: `<code>${escapeHtml(p.default_path)}</code>` })}</div>`
         : ""}
     </div>
   `;
@@ -216,22 +253,22 @@ function attachCardHandlers() {
         } else {
           await invoke("set_provider_path", { providerId: id, path: value });
         }
-        flashCard(card, "변경됨 · 재시작 시 적용");
+        flashCard(card, t("settings.providers.saved_custom"));
         await refresh();
       } catch (e) {
         console.error("set_provider_path:", e);
-        flashCard(card, "저장 실패", true);
+        flashCard(card, t("settings.providers.save_failed"), true);
       }
     });
 
     resetBtn?.addEventListener("click", async () => {
       try {
         await invoke("clear_provider_path", { providerId: id });
-        flashCard(card, "기본값으로 복원 · 재시작 시 적용");
+        flashCard(card, t("settings.providers.reset_default"));
         await refresh();
       } catch (e) {
         console.error("clear_provider_path:", e);
-        flashCard(card, "복원 실패", true);
+        flashCard(card, t("settings.providers.reset_failed"), true);
       }
     });
   });
