@@ -1040,6 +1040,15 @@ button {
   justify-content: center;
 }
 .planet-orb-svg { display: block; }
+/* Canvas defaults to inline display — without an explicit block + GPU layer
+   it twitches when the parent .planet-card transforms on hover (the rAF
+   keeps drawing while the flex container's baseline alignment recomputes,
+   producing a 1-2px flicker). will-change pins the canvas to its own layer. */
+.planet-orb-canvas {
+  display: block;
+  will-change: transform;
+  backface-visibility: hidden;
+}
 .planet-orb-locked {
   width: 58px;
   height: 58px;
