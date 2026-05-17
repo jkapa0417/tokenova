@@ -37,6 +37,15 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // Auto-start at OS login. The plugin handles platform specifics:
+        //   - macOS: LaunchAgent (~/Library/LaunchAgents/com.tokenova.app.plist)
+        //   - Windows: HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+        //   - Linux: XDG autostart (~/.config/autostart/com.tokenova.app.desktop)
+        // The default is OFF — users opt in via Settings → 정보.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .invoke_handler(tauri::generate_handler![
             commands::get_today_total,
             commands::get_recent_token_events,

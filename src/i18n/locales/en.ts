@@ -218,6 +218,13 @@ export const en: Dictionary = {
       ko: "한국어",
       en: "English",
     },
+    autostart: {
+      title: "Launch at startup",
+      desc: "Run Tokenova in the background automatically when the OS boots.",
+      on: "On",
+      off: "Off",
+      failed: "Couldn't change — please check permissions.",
+    },
   },
 
   updater: {

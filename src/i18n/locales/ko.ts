@@ -215,6 +215,13 @@ export const ko = {
       ko: "한국어",
       en: "English",
     },
+    autostart: {
+      title: "시작 프로그램",
+      desc: "OS 부팅 시 Tokenova를 백그라운드에서 자동 실행합니다.",
+      on: "켜짐",
+      off: "꺼짐",
+      failed: "변경 실패 — 권한을 확인해주세요.",
+    },
   },
 
   updater: {
