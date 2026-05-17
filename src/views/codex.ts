@@ -872,6 +872,13 @@ function openConstellationDetail(entry: ConstellationCodexEntry): void {
     } else {
       handle.galaxyRenderer?.stop();
       handle.galaxyRenderer = null;
+      // UniverseRenderer pinned canvas.style.{width,height} to fixed 480/400
+      // CSS px in galaxy mode. Clear those inline styles so the CSS
+      // `width: 100%` rule re-applies and `drawConstellationMini` measures
+      // the actual frame rect — otherwise the constellation gets drawn at
+      // 480 px logical width inside a smaller wrap and looks zoomed in.
+      canvas.style.width = "";
+      canvas.style.height = "";
       // Plain decorative mode — clear any planet pins from the previous render.
       const pinLayer = document.getElementById("const-planet-overlay");
       if (pinLayer) pinLayer.innerHTML = "";

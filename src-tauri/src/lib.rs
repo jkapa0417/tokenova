@@ -6,6 +6,10 @@ mod parser;
 mod session;
 mod watcher;
 
+// Dev console (HTTP server) is debug-only — release builds never include it.
+#[cfg(debug_assertions)]
+mod dev_console;
+
 use std::sync::{Arc, Mutex};
 
 use tauri::{
@@ -39,6 +43,7 @@ pub fn run() {
             commands::get_codex,
             commands::get_achievements,
             commands::save_constellation,
+            commands::rename_current_galaxy,
             commands::list_constellation_codex,
             commands::delete_constellation,
             commands::get_universe_by_id,
@@ -63,6 +68,22 @@ pub fn run() {
                 let _ = window.set_skip_taskbar(false);
                 let _ = window.show();
                 let _ = window.set_focus();
+            }
+
+            // Defer a second `set_focus` until after the webview has finished
+            // its initial load. On Linux/WSLg WebKit2GTK (and Windows WebView2)
+            // an immediate setup-time focus can fire before the document is
+            // ready, leaving the native window focused but the HTML doc in a
+            // "ghost focus" state — letters reach the input but OS IME hotkeys
+            // (한/영, Shift+Space) get swallowed before the webview sees them.
+            // A short async wait then re-issuing set_focus rebinds the IM
+            // context to the live document. Runs in both debug and release.
+            if let Some(window) = app.get_webview_window("main") {
+                let win = window.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    let _ = win.set_focus();
+                });
             }
 
             // --- DB ---
@@ -142,6 +163,16 @@ pub fn run() {
             app.manage(
                 Mutex::new((claude_handle, codex_handle)) as Mutex<(WatcherHandle, WatcherHandle)>
             );
+
+            // Dev console — only in debug builds AND only when explicitly
+            // opted-in via the TOKENOVA_DEV_CONSOLE env var, so a routine
+            // `npm run tauri dev` doesn't bind 7777 unprompted.
+            #[cfg(debug_assertions)]
+            {
+                let engine: tauri::State<Arc<Engine>> = app.state();
+                dev_console::maybe_start(db.clone(), engine.inner().clone(), events_tx.clone());
+            }
+
             app.manage(events_tx);
 
             // --- Tray icon + popover toggle (Phase A) ---
@@ -186,5 +217,14 @@ fn toggle_popover(app: &tauri::AppHandle) {
         let _ = window.move_window(Position::TrayCenter);
         let _ = window.show();
         let _ = window.set_focus();
+        // Second focus after the webview has had a tick to settle. Without
+        // this, on Linux/WSLg the IM context can stay bound to the previous
+        // native window and OS hotkeys (한/영) get dropped before reaching
+        // the webview. Cheap and idempotent on macOS/Windows where it's a no-op.
+        let win = window.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+            let _ = win.set_focus();
+        });
     }
 }

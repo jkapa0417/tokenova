@@ -17,7 +17,13 @@ use crate::db::{Db, TokenEvent};
 use crate::engine::ClosedSession;
 
 pub const IDLE_TIMEOUT_SECS: i64 = 5 * 60;
-pub const PLANET_THRESHOLD_TOKENS: u64 = 5_000;
+pub const PLANET_THRESHOLD_TOKENS: u64 = 1_000_000;
+/// Mid-session forced trigger: every time an open session's running total
+/// crosses a multiple of this value, fire a planet trigger without actually
+/// closing the session. Lets heavy bursts (a single long conversation, agentic
+/// runs) keep yielding discoveries instead of having to wait for a 5-minute
+/// idle gap.
+pub const FORCED_PLANET_TOKEN_THRESHOLD: u64 = 20_000_000;
 const IDLE_CHECK_INTERVAL_SECS: u64 = 30;
 
 #[derive(Debug, Clone)]
@@ -25,6 +31,10 @@ struct OpenSession {
     id: i64,
     last_activity: DateTime<Utc>,
     total_tokens: u64,
+    /// Number of FORCED_PLANET_TOKEN_THRESHOLD chunks already announced for
+    /// this session. Prevents double-firing when a single event pushes the
+    /// total past the same boundary that was crossed earlier.
+    triggered_chunks: u64,
 }
 
 pub struct SessionManager {
@@ -98,7 +108,10 @@ impl SessionManager {
         // Close stale session if the idle gap was exceeded before this event.
         if let Some(open) = guard.as_ref().cloned() {
             if (ts - open.last_activity).num_seconds() > IDLE_TIMEOUT_SECS {
-                let triggered = open.total_tokens >= PLANET_THRESHOLD_TOKENS;
+                let residual = open
+                    .total_tokens
+                    .saturating_sub(open.triggered_chunks * FORCED_PLANET_TOKEN_THRESHOLD);
+                let triggered = residual >= PLANET_THRESHOLD_TOKENS;
                 self.db
                     .close_session(open.id, open.last_activity, triggered)?;
                 if triggered {
@@ -115,6 +128,7 @@ impl SessionManager {
                 id,
                 last_activity: ts,
                 total_tokens: 0,
+                triggered_chunks: 0,
             });
         }
 
@@ -128,6 +142,16 @@ impl SessionManager {
         if let Some(event_id) = event.id {
             self.db.assign_session(event_id, open.id)?;
         }
+
+        // Mid-session forced trigger: fire one planet attempt per 20M-token
+        // chunk the session has crossed. A single huge event can advance the
+        // counter by more than one chunk, hence the while-loop.
+        let target_chunks = open.total_tokens / FORCED_PLANET_TOKEN_THRESHOLD;
+        while open.triggered_chunks < target_chunks {
+            open.triggered_chunks += 1;
+            let snapshot_total = open.triggered_chunks * FORCED_PLANET_TOKEN_THRESHOLD;
+            self.announce_closed(open.id, snapshot_total);
+        }
         Ok(())
     }
 
@@ -137,7 +161,10 @@ impl SessionManager {
             return Ok(());
         };
         if (now - open.last_activity).num_seconds() > IDLE_TIMEOUT_SECS {
-            let triggered = open.total_tokens >= PLANET_THRESHOLD_TOKENS;
+            let residual = open
+                .total_tokens
+                .saturating_sub(open.triggered_chunks * FORCED_PLANET_TOKEN_THRESHOLD);
+            let triggered = residual >= PLANET_THRESHOLD_TOKENS;
             self.db
                 .close_session(open.id, open.last_activity, triggered)?;
             if triggered {

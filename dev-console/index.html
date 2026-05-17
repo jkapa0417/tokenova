@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>Tokenova — Dev Console</title>
+  <!-- Empty data-URI favicon stops the browser from auto-requesting /favicon.ico. -->
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header>
+    <h1>Tokenova Dev Console</h1>
+    <div class="endpoint">
+      <code id="endpoint">http://127.0.0.1:7777</code>
+      <span class="dot" id="status-dot" title="connection"></span>
+      <span id="status-text">…</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="card">
+      <div class="card-head">
+        <h2>State</h2>
+        <button id="refresh">Refresh</button>
+      </div>
+      <pre id="state-out">loading…</pre>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Inject Token Event</h2></div>
+      <p class="hint">Pumps a synthetic <code>TokenEvent</code> through the watcher
+        pipeline — drives stars, sessions, and (with enough tokens before idle
+        close) planet discovery.</p>
+      <form id="token-form" class="grid">
+        <label>Provider
+          <select name="provider">
+            <option value="dev_console">dev_console</option>
+            <option value="claude_code">claude_code</option>
+            <option value="codex_cli">codex_cli</option>
+            <option value="opencode">opencode</option>
+          </select>
+        </label>
+        <label>Model
+          <input name="model" value="dev-test" />
+        </label>
+        <label>Input
+          <input name="input_tokens" type="number" min="0" value="500" />
+        </label>
+        <label>Output
+          <input name="output_tokens" type="number" min="0" value="500" />
+        </label>
+        <label>Cache R
+          <input name="cache_read" type="number" min="0" value="0" />
+        </label>
+        <label>Cache W
+          <input name="cache_write" type="number" min="0" value="0" />
+        </label>
+        <div class="actions">
+          <button type="button" class="quick" data-preset="small">+1K</button>
+          <button type="button" class="quick" data-preset="medium">+5K</button>
+          <button type="button" class="quick" data-preset="large">+50K</button>
+          <button type="submit" class="primary">Inject</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Quick Actions</h2></div>
+      <div class="actions wide">
+        <button id="trigger-planet">Force Planet (rng)</button>
+        <button id="trigger-mythic">Force Mythic ⭐</button>
+        <button id="discover-all" title="Bypass daily cap — insert one of every catalog entry">Discover ALL (bypass cap)</button>
+        <button id="clear-tokens" class="warn">Clear Today's Tokens</button>
+        <button id="clear-today" class="warn">Clear Today (planets / stars / codex)</button>
+        <button id="reset-bootstrap" class="warn">Reset First-run Sentinel</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Activity Log</h2><button id="clear-log">Clear</button></div>
+      <ul id="log"></ul>
+    </section>
+  </main>
+
+  <script src="./script.js"></script>
+</body>
+</html>

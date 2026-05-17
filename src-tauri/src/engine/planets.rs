@@ -26,12 +26,20 @@ const PLANET_RADIUS_MIN: f32 = 12.0;
 #[allow(dead_code)]
 const PLANET_RADIUS_MAX: f32 = 30.0;
 const MIN_SPACING_FROM_STAR: f32 = 18.0;
-const MIN_SPACING_FROM_PLANET: f32 = 40.0;
+// At zoom 1 the pin sprite (planet + halo) is roughly 38 CSS px in diameter,
+// which is ~76 world units (SCALE = 0.5). Spacing under that lets pins
+// visually overlap. 90 keeps a comfortable gap between any two discs.
+const MIN_SPACING_FROM_PLANET: f32 = 90.0;
 // World-space margin so the DOM pin sprite (planet + halo + NEW badge) stays
 // fully visible after the canvas is letterboxed/stretched to fit the wrap.
 // Pin sprite is ~38 CSS px at zoom 1; on a 280 px wrap that's ~13 % of width,
 // i.e. ~125 world units. 120 keeps a small safety buffer.
 const EDGE_MARGIN: f32 = 120.0;
+// Today's HUD covers the bottom ~30 % of the universe-wrap. Keeping a
+// larger bottom inset means new planets never land where the HUD readout
+// will obscure them — the client-side cull catches stragglers from old
+// saved data but new placements stay readable.
+const BOTTOM_MARGIN: f32 = 260.0;
 const MAX_ATTEMPTS: usize = 200;
 
 #[derive(Debug, Clone)]
@@ -125,21 +133,34 @@ pub fn roll_rarity<R: Rng>(rng: &mut R) -> Rarity {
 /// Find a position with enough breathing room. Stars near a candidate cost
 /// less than another planet, so common-rarity planets can still squeeze into
 /// dense universes while planets never overlap each other.
-fn find_empty_position<R: Rng>(
+pub(crate) fn find_empty_position<R: Rng>(
     rng: &mut R,
     stars: &[crate::engine::types::Star],
     planets: &[Planet],
 ) -> (f32, f32) {
-    let mut best: Option<(f32, f32, f32)> = None; // (x, y, score) — bigger score = roomier
+    // Best candidate that already meets MIN_SPACING_FROM_PLANET — used when
+    // no candidate also clears the star-spacing bar.
+    let mut best_with_gap: Option<(f32, f32, f32)> = None;
+    // Roomiest candidate by planet-distance regardless of any threshold —
+    // saves a tightly-packed universe from the random-overlap fallback.
+    let mut roomiest: Option<(f32, f32, f32)> = None;
 
     for _ in 0..MAX_ATTEMPTS {
         let x = EDGE_MARGIN + rng.gen::<f32>() * (UNIVERSE_W - 2.0 * EDGE_MARGIN);
-        let y = EDGE_MARGIN + rng.gen::<f32>() * (UNIVERSE_H - 2.0 * EDGE_MARGIN);
+        let y = EDGE_MARGIN + rng.gen::<f32>() * (UNIVERSE_H - EDGE_MARGIN - BOTTOM_MARGIN);
 
         let nearest_planet = planets
             .iter()
             .map(|p| ((p.position_x - x).powi(2) + (p.position_y - y).powi(2)).sqrt())
             .fold(f32::INFINITY, f32::min);
+
+        // Always track the roomiest by planet distance so the fallback is
+        // never a literal random splat that lands on top of another disc.
+        match roomiest {
+            Some((_, _, rd)) if rd >= nearest_planet => {}
+            _ => roomiest = Some((x, y, nearest_planet)),
+        }
+
         if nearest_planet < MIN_SPACING_FROM_PLANET {
             continue;
         }
@@ -149,24 +170,27 @@ fn find_empty_position<R: Rng>(
             .map(|s| ((s.position_x - x).powi(2) + (s.position_y - y).powi(2)).sqrt())
             .fold(f32::INFINITY, f32::min);
 
-        let score = nearest_star;
         if nearest_star >= MIN_SPACING_FROM_STAR {
             return (x, y);
         }
 
-        match best {
-            Some((_, _, bs)) if bs >= score => {}
-            _ => best = Some((x, y, score)),
+        match best_with_gap {
+            Some((_, _, bs)) if bs >= nearest_star => {}
+            _ => best_with_gap = Some((x, y, nearest_star)),
         }
     }
 
-    if let Some((x, y, _)) = best {
+    if let Some((x, y, _)) = best_with_gap {
         return (x, y);
     }
-    // Truly unlucky run — fall back to a random in-bounds point.
+    if let Some((x, y, _)) = roomiest {
+        return (x, y);
+    }
+    // Empty universe (no planets yet, no roomiest tracked) — any in-bounds
+    // point is safe.
     (
         EDGE_MARGIN + rng.gen::<f32>() * (UNIVERSE_W - 2.0 * EDGE_MARGIN),
-        EDGE_MARGIN + rng.gen::<f32>() * (UNIVERSE_H - 2.0 * EDGE_MARGIN),
+        EDGE_MARGIN + rng.gen::<f32>() * (UNIVERSE_H - EDGE_MARGIN - BOTTOM_MARGIN),
     )
 }
 

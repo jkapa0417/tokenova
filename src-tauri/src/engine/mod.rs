@@ -243,8 +243,57 @@ impl Engine {
         Ok(self.state.lock().await.universe.id)
     }
 
+    /// Rename today's universe. Empty input falls back to the auto-generated
+    /// name derived from the universe seed. Updates both the DB row and the
+    /// engine's cached `state.universe.cluster_name` so the next payload poll
+    /// reflects the change immediately (otherwise the cached copy clobbers
+    /// the rename a few seconds later).
+    pub async fn rename_current_universe(&self, raw: &str) -> Result<String> {
+        let trimmed = raw.trim();
+        let mut state = self.state.lock().await;
+        let final_name = if trimmed.is_empty() {
+            universe::generate_cluster_name(state.universe.seed)
+        } else {
+            trimmed.to_string()
+        };
+        self.db.rename_universe(state.universe.id, &final_name)?;
+        state.universe.cluster_name = Some(final_name.clone());
+        Ok(final_name)
+    }
+
+    /// Debug-only: refresh the in-memory today_tokens / leftover counters
+    /// from the database. Used by the dev console after a token wipe so the
+    /// HUD shows the new total instead of the cached engine value.
+    #[cfg(debug_assertions)]
+    pub async fn dev_reload_today_tokens(&self) -> Result<()> {
+        let mut state = self.state.lock().await;
+        let today = universe::today_date_local();
+        state.today_tokens = sum_today_tokens(&self.db, today)?;
+        state.leftover_tokens = 0;
+        Ok(())
+    }
+
+    /// Debug-only: re-fetch today's universe row from the DB. Picks up
+    /// changes made by dev_console wipes (e.g. star_count was reset to 0).
+    #[cfg(debug_assertions)]
+    pub async fn dev_reload_universe(&self) -> Result<()> {
+        let mut state = self.state.lock().await;
+        let today = universe::today_date_local();
+        if let Some(u) = self.db.find_universe_by_date(today)? {
+            state.universe = u;
+        }
+        Ok(())
+    }
+
     pub async fn current_universe_payload(&self) -> Result<UniversePayload> {
-        let state = self.state.lock().await;
+        let mut state = self.state.lock().await;
+        // The dedicated midnight timer is the primary rollover path, but
+        // tokio sleeps that span OS suspend (laptop closed across midnight)
+        // can lag by a few seconds on wake. The frontend polls this method
+        // every 3 s, so a lazy refresh here guarantees the HUD never shows
+        // yesterday's totals — independent of whether any token event has
+        // arrived yet on the new day.
+        self.refresh_date_if_needed(&mut state).await?;
         let universe = state.universe.clone();
         let leftover = state.leftover_tokens;
         let today_tokens = state.today_tokens;

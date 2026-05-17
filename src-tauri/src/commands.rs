@@ -169,6 +169,20 @@ pub async fn save_constellation(
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+pub async fn rename_current_galaxy(
+    engine: State<'_, Arc<crate::engine::Engine>>,
+    name: String,
+) -> Result<String, String> {
+    if name.trim().chars().count() > 40 {
+        return Err("최대 40자".to_string());
+    }
+    engine
+        .rename_current_universe(&name)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Read-only payload (no leftover/today_tokens) for the Gallery view.
 #[derive(serde::Serialize)]
 pub struct ReadOnlyUniverse {

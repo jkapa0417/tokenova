@@ -62,7 +62,20 @@ pub const LEGENDARY_PLANETS: &[PlanetSpec] = &[
     spec("ancient_civilization", "고대 문명", Rarity::Legendary),
 ];
 
-pub const MYTHIC_PLANETS: &[PlanetSpec] = &[spec("dyson_sphere", "다이슨 구체", Rarity::Mythic)];
+pub const MYTHIC_PLANETS: &[PlanetSpec] = &[
+    spec("dyson_sphere", "다이슨 구체", Rarity::Mythic),
+    spec("black_hole", "블랙홀", Rarity::Mythic),
+];
+
+/// Every catalog entry across all rarities, in display order. Used by the
+/// dev console's "discover-all" action.
+pub fn all_planets() -> impl Iterator<Item = &'static PlanetSpec> {
+    COMMON_PLANETS.iter()
+        .chain(RARE_PLANETS.iter())
+        .chain(EPIC_PLANETS.iter())
+        .chain(LEGENDARY_PLANETS.iter())
+        .chain(MYTHIC_PLANETS.iter())
+}
 
 const fn spec(key: &'static str, display_name: &'static str, rarity: Rarity) -> PlanetSpec {
     PlanetSpec {

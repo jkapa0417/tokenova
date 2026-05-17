@@ -9,14 +9,14 @@ use serde::{Deserialize, Serialize};
 pub const UNIVERSE_W: f32 = 960.0;
 pub const UNIVERSE_H: f32 = 800.0;
 
-/// 1 별 = 1,000 토큰. (design modification #4)
-pub const TOKENS_PER_STAR: u64 = 1_000;
+/// 1 별 = 200,000 토큰. (사용자 요청 — 1k이 너무 빨리 캡 도달)
+pub const TOKENS_PER_STAR: u64 = 200_000;
 /// 일일 별 캡. (design modification #4)
 pub const DAILY_STAR_CAP: u32 = 1_000;
 /// 일일 행성 캡. mythic 제외 모든 등급 합산. (design modification #6)
 pub const DAILY_PLANET_CAP: u32 = 10;
 /// 행성 트리거 임계값 (세션 토큰).
-pub const PLANET_SESSION_THRESHOLD: u64 = 5_000;
+pub const PLANET_SESSION_THRESHOLD: u64 = 1_000_000;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
