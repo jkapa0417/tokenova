@@ -36,7 +36,11 @@ pub fn opencode_db_path() -> Result<PathBuf> {
         .join("opencode.db"))
 }
 
-pub fn spawn_opencode_watcher(db: Arc<Db>, events_tx: broadcast::Sender<TokenEvent>) -> Result<()> {
+pub fn spawn_opencode_watcher(
+    db: Arc<Db>,
+    events_tx: broadcast::Sender<TokenEvent>,
+    first_run: bool,
+) -> Result<()> {
     let opencode_path = opencode_db_path()?;
     if !opencode_path.exists() {
         eprintln!(
@@ -46,12 +50,20 @@ pub fn spawn_opencode_watcher(db: Arc<Db>, events_tx: broadcast::Sender<TokenEve
         return Ok(());
     }
 
-    // Bootstrap immediately so existing messages get processed before the first tick.
+    // Bootstrap.
+    // - First run ever: jump the high-water mark to the latest existing
+    //   row's time_updated so prior OpenCode conversations are treated as
+    //   already-consumed. No events are emitted from the historical data.
+    // - Subsequent runs: scan_once as usual.
     let db_init = db.clone();
     let tx_init = events_tx.clone();
     let path_init = opencode_path.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = scan_once(&path_init, &db_init, &tx_init).await {
+        if first_run {
+            if let Err(e) = baseline_to_latest(&path_init, &db_init).await {
+                eprintln!("[opencode] baseline failed: {e:#}");
+            }
+        } else if let Err(e) = scan_once(&path_init, &db_init, &tx_init).await {
             eprintln!("[opencode] bootstrap failed: {e:#}");
         }
     });
@@ -69,6 +81,33 @@ pub fn spawn_opencode_watcher(db: Arc<Db>, events_tx: broadcast::Sender<TokenEve
     });
 
     Ok(())
+}
+
+/// First-run helper: record the most recent `time_updated` in OpenCode's DB
+/// as our high-water mark so historical messages stay outside our totals.
+async fn baseline_to_latest(opencode_path: &Path, db: &Db) -> Result<()> {
+    let path = opencode_path.to_path_buf();
+    let latest = tokio::task::spawn_blocking(move || query_latest_time_updated(&path))
+        .await
+        .map_err(|e| anyhow!("opencode baseline task: {e}"))??;
+    if latest > 0 {
+        db.set_watch_offset(STATE_KEY, latest as u64)?;
+    }
+    Ok(())
+}
+
+fn query_latest_time_updated(opencode_path: &Path) -> Result<i64> {
+    let conn = Connection::open_with_flags(opencode_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .with_context(|| format!("opening {opencode_path:?}"))?;
+    let latest: Option<i64> = conn
+        .query_row(
+            "SELECT MAX(time_updated) FROM message",
+            [],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .ok()
+        .flatten();
+    Ok(latest.unwrap_or(0))
 }
 
 async fn scan_once(

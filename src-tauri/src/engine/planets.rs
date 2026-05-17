@@ -27,7 +27,11 @@ const PLANET_RADIUS_MIN: f32 = 12.0;
 const PLANET_RADIUS_MAX: f32 = 30.0;
 const MIN_SPACING_FROM_STAR: f32 = 18.0;
 const MIN_SPACING_FROM_PLANET: f32 = 40.0;
-const EDGE_MARGIN: f32 = 60.0;
+// World-space margin so the DOM pin sprite (planet + halo + NEW badge) stays
+// fully visible after the canvas is letterboxed/stretched to fit the wrap.
+// Pin sprite is ~38 CSS px at zoom 1; on a 280 px wrap that's ~13 % of width,
+// i.e. ~125 world units. 120 keeps a small safety buffer.
+const EDGE_MARGIN: f32 = 120.0;
 const MAX_ATTEMPTS: usize = 200;
 
 #[derive(Debug, Clone)]

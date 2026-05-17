@@ -1,6 +1,10 @@
 // Codex view: 30 planet types grouped by tier (Common / Rare / Epic /
 // Legendary / Mythic), 3-col grid, tier-colored cards with foil sheen on
 // rare+. Locked cards show a dark sphere placeholder until discovered.
+//
+// Codex also hosts a 별자리 (constellation) sub-tab — a 2-col grid of
+// registered constellations with miniature canvas thumbnails. Empty state
+// asks the user to create one in Today.
 
 import { invoke } from "@tauri-apps/api/core";
 
@@ -13,8 +17,23 @@ import {
   TIER_PROBABILITY,
   type PlanetSpec,
 } from "../universe/catalog";
+import { clampCamera, makeView, ZOOM_MAX, ZOOM_MIN } from "../universe/camera";
+import { buildEffects } from "../universe/effects";
 import { planetSvg } from "../universe/planet-svg";
-import type { Rarity } from "../universe/types";
+import { UniverseRenderer } from "../universe/renderer";
+import { mulberry32 } from "../universe/rng";
+import {
+  DISPLAY_H,
+  DISPLAY_W,
+  UNIVERSE_H,
+  UNIVERSE_W,
+  type Constellation as ConstellationT,
+  type Nebula,
+  type Planet,
+  type Star,
+  type Universe,
+  type Rarity,
+} from "../universe/types";
 
 interface CodexCard {
   key: string;
@@ -39,31 +58,108 @@ interface CodexPayload {
   discovered_count: number;
 }
 
+// Sub-tab state lives at module scope so it survives tab switches without
+// resetting to the planet grid. The codex re-renders on every activate so
+// numeric badges stay fresh either way.
+type CodexSub = "planets" | "constellations";
+let currentSub: CodexSub = "planets";
+let subtabsWired = false;
+
 export async function activateCodex(): Promise<void> {
+  wireSubtabs();
   await refresh();
 }
 
 export async function refresh(): Promise<void> {
-  const $disc = document.getElementById("codex-discovered");
-  const $total = document.getElementById("codex-total");
-  const $content = document.getElementById("codex-content");
-  if (!$content) return;
+  await Promise.all([refreshPlanetCounts(), refreshConstellationCount()]);
+  applySubtabUi();
+  if (currentSub === "planets") {
+    await refreshPlanetGrid();
+  } else {
+    await refreshConstellationGrid();
+  }
+}
 
+let lastPayload: CodexPayload | null = null;
+let lastConstellationCount = 0;
+
+async function refreshPlanetCounts(): Promise<void> {
   try {
     const payload = await invoke<CodexPayload>("get_codex");
+    lastPayload = payload;
+    const $disc = document.getElementById("codex-discovered");
+    const $total = document.getElementById("codex-total");
+    const $planetsNum = document.getElementById("codex-planets-num");
     if ($disc) $disc.textContent = String(payload.discovered_count);
     if ($total) $total.textContent = String(payload.total_count);
-
-    // Index by key so we can look up discovery state.
-    const byKey = new Map<string, CodexCard>();
-    for (const g of payload.groups) for (const c of g.cards) byKey.set(c.key, c);
-
-    $content.innerHTML = TIER_ORDER.map((tier) => renderTier(tier, byKey)).join("");
-    attachClickHandlers(byKey);
+    if ($planetsNum)
+      $planetsNum.textContent = `${payload.discovered_count}/${payload.total_count}`;
   } catch (e) {
-    console.error("codex:", e);
-    $content.innerHTML = `<div style="color: var(--fg-3); text-align: center; padding: 40px 0;">로딩 실패</div>`;
+    console.error("codex counts:", e);
   }
+}
+
+async function refreshConstellationCount(): Promise<void> {
+  try {
+    const list = await invoke<ConstellationCodexEntry[]>("list_constellation_codex");
+    lastConstellationCount = list.length;
+    const $constNum = document.getElementById("codex-const-num");
+    if ($constNum) $constNum.textContent = String(list.length);
+  } catch (e) {
+    console.error("codex const count:", e);
+  }
+}
+
+function applySubtabUi(): void {
+  document
+    .querySelectorAll<HTMLButtonElement>("#codex-subtabs button")
+    .forEach((b) => b.classList.toggle("on", b.dataset.sub === currentSub));
+  const $desc = document.getElementById("codex-desc");
+  const $lbl = document.getElementById("codex-right-lbl");
+  const $disc = document.getElementById("codex-discovered");
+  const $total = document.getElementById("codex-total");
+  if (currentSub === "planets") {
+    if ($desc) $desc.textContent = `${lastPayload?.total_count ?? 30} SPECIES · 행성 도감`;
+    if ($lbl) $lbl.textContent = "DISCOVERED";
+    if ($disc) $disc.textContent = String(lastPayload?.discovered_count ?? 0);
+    if ($total) {
+      $total.textContent = String(lastPayload?.total_count ?? 30);
+      $total.previousElementSibling?.classList.remove("hidden");
+    }
+  } else {
+    if ($desc) $desc.textContent = `${lastConstellationCount} CONSTELLATIONS · 별자리 도감`;
+    if ($lbl) $lbl.textContent = "REGISTERED";
+    if ($disc) $disc.textContent = String(lastConstellationCount);
+    // Hide the "/total" portion for the constellation count by setting total
+    // to empty — simpler than mutating sibling element classes.
+    if ($total) $total.textContent = "";
+  }
+}
+
+function wireSubtabs(): void {
+  if (subtabsWired) return;
+  document.querySelectorAll<HTMLButtonElement>("#codex-subtabs button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const sub = btn.dataset.sub as CodexSub | undefined;
+      if (!sub || sub === currentSub) return;
+      currentSub = sub;
+      void refresh();
+    });
+  });
+  subtabsWired = true;
+}
+
+async function refreshPlanetGrid(): Promise<void> {
+  const $content = document.getElementById("codex-content");
+  if (!$content) return;
+  if (!lastPayload) {
+    $content.innerHTML = `<div style="color: var(--fg-3); text-align: center; padding: 40px 0;">로딩 중…</div>`;
+    return;
+  }
+  const byKey = new Map<string, CodexCard>();
+  for (const g of lastPayload.groups) for (const c of g.cards) byKey.set(c.key, c);
+  $content.innerHTML = TIER_ORDER.map((tier) => renderTier(tier, byKey)).join("");
+  attachClickHandlers(byKey);
 }
 
 function renderTier(rarity: Rarity, byKey: Map<string, CodexCard>): string {
@@ -268,6 +364,527 @@ function ensureModalWired() {
 }
 
 function closeModal() {
+  const modal = document.getElementById("planet-modal");
+  if (modal) modal.hidden = true;
+}
+
+// ───────────────────── Constellation codex sub-tab ─────────────────────
+
+interface ConstellationCodexEntry {
+  id: number;
+  universe_id: number;
+  name: string;
+  color: string;
+  created_at: string;
+  universe_date: string;
+  cluster_name: string | null;
+  seed: number;
+  stars: [number, number][];   // world-space (x, y)
+}
+
+let lastConstellationList: ConstellationCodexEntry[] = [];
+
+async function refreshConstellationGrid(): Promise<void> {
+  const $content = document.getElementById("codex-content");
+  if (!$content) return;
+  try {
+    const list = await invoke<ConstellationCodexEntry[]>("list_constellation_codex");
+    lastConstellationList = list;
+    if (list.length === 0) {
+      $content.innerHTML = `
+        <div class="const-empty">
+          아직 등록된 별자리가 없어요.<br/>
+          Today에서 별을 연결해보세요.
+        </div>`;
+      return;
+    }
+    $content.innerHTML = `
+      <div class="constellation-grid">
+        ${list.map(renderConstellationCard).join("")}
+      </div>`;
+    // Render the mini canvas thumbnails after the DOM is populated.
+    for (const entry of list) {
+      const canvas = document.getElementById(
+        `const-mini-${entry.id}`,
+      ) as HTMLCanvasElement | null;
+      if (canvas) drawConstellationMini(canvas, entry);
+    }
+    attachConstellationCardHandlers();
+  } catch (e) {
+    console.error("constellation codex:", e);
+    $content.innerHTML = `<div style="color: var(--fg-3); text-align: center; padding: 40px 0;">로딩 실패</div>`;
+  }
+}
+
+function renderConstellationCard(entry: ConstellationCodexEntry): string {
+  const date = entry.created_at.slice(0, 10).replace(/-/g, ".");
+  const cluster = entry.cluster_name ?? entry.universe_date;
+  return `
+    <div class="const-card" data-id="${entry.id}">
+      <div class="const-vis">
+        <canvas id="const-mini-${entry.id}" class="const-mini-canvas"></canvas>
+      </div>
+      <div class="const-name">${escapeHtml(entry.name)}</div>
+      <div class="const-meta">
+        <span>${date}</span>
+        <span class="sep">·</span>
+        <span>${escapeHtml(cluster)}</span>
+        <span class="sep">·</span>
+        <span>별 ${entry.stars.length}</span>
+      </div>
+    </div>`;
+}
+
+function attachConstellationCardHandlers() {
+  document
+    .querySelectorAll<HTMLElement>("#codex-content .const-card")
+    .forEach((el) => {
+      el.addEventListener("click", () => {
+        const id = parseInt(el.dataset.id ?? "", 10);
+        const entry = lastConstellationList.find((c) => c.id === id);
+        if (entry) openConstellationDetail(entry);
+      });
+    });
+}
+
+interface MiniOptions {
+  /** When true, fit the entire universe (with the constellation in context). */
+  showGalaxy?: boolean;
+  /** Required when showGalaxy is true — drawn as the background starfield. */
+  galaxyStars?: { position_x: number; position_y: number; radius: number;
+    color_r: number; color_g: number; color_b: number; opacity: number }[];
+}
+
+// ConstellationMini — renders a constellation's polyline + star dots, either
+// auto-zoomed to the constellation's bounding box (default — keeps the shape
+// readable in small thumbnails) or zoomed out to show the parent galaxy.
+function drawConstellationMini(
+  canvas: HTMLCanvasElement,
+  entry: ConstellationCodexEntry,
+  opts: MiniOptions = {},
+): void {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const rect = canvas.getBoundingClientRect();
+  const w = Math.max(1, rect.width);
+  const h = Math.max(1, rect.height);
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#07080c";
+  ctx.fillRect(0, 0, w, h);
+
+  if (entry.stars.length === 0) return;
+  const pad = 14;
+  const innerW = w - pad * 2;
+  const innerH = h - pad * 2;
+
+  // Compute world → canvas mapping ONCE based on the constellation's bbox.
+  // The same scale is used in both modes — toggling "은하 보이기" only adds
+  // the surrounding starfield as context; the constellation's size and
+  // position stay locked.
+  const xs = entry.stars.map(([x]) => x);
+  const ys = entry.stars.map(([, y]) => y);
+  const constMinX = Math.min(...xs);
+  const constMaxX = Math.max(...xs);
+  const constMinY = Math.min(...ys);
+  const constMaxY = Math.max(...ys);
+  // Inflate single-star degenerate bboxes so we don't divide by zero.
+  const bboxW = Math.max(40, constMaxX - constMinX);
+  const bboxH = Math.max(40, constMaxY - constMinY);
+  const constCenterX = (constMinX + constMaxX) / 2;
+  const constCenterY = (constMinY + constMaxY) / 2;
+
+  const scale = Math.min(innerW / bboxW, innerH / bboxH);
+  // Center the bbox center on the canvas — works whether the cluster is at a
+  // universe corner or in the middle, and keeps the constellation centered
+  // both with and without the galaxy layer.
+  const originX = pad + innerW / 2 - constCenterX * scale;
+  const originY = pad + innerH / 2 - constCenterY * scale;
+  const mapX = (x: number) => originX + x * scale;
+  const mapY = (y: number) => originY + y * scale;
+
+  // Background star layer.
+  if (opts.showGalaxy && opts.galaxyStars && opts.galaxyStars.length) {
+    // Real galaxy stars at the same scale as the constellation. Most fall
+    // outside the visible canvas (since we're zoomed in on the cluster);
+    // the ones near the constellation give a sense of where it sits in
+    // the host universe.
+    for (const s of opts.galaxyStars) {
+      const sx = mapX(s.position_x);
+      const sy = mapY(s.position_y);
+      if (sx < -4 || sx > w + 4 || sy < -4 || sy > h + 4) continue;
+      const r = Math.max(0.5, s.radius * scale * 0.55);
+      ctx.fillStyle = `rgba(${s.color_r},${s.color_g},${s.color_b},${s.opacity})`;
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else {
+    // Seeded decorative background — only used when galaxy is off, so the
+    // card doesn't feel empty around a small constellation.
+    const rng = mulberry32((entry.seed ^ entry.id) >>> 0);
+    for (let i = 0; i < 50; i++) {
+      const sr = 0.3 + rng() * 0.8;
+      ctx.fillStyle = `rgba(255,255,255,${0.3 + rng() * 0.4})`;
+      ctx.beginPath();
+      ctx.arc(rng() * w, rng() * h, sr, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  const pts = entry.stars.map(([x, y]) => ({ x: mapX(x), y: mapY(y) }));
+
+  // Sizes — constant across modes since the scale itself is constant.
+  const dotR = 4.5;
+  const glowR = 7;
+  const lineMain = 1.8;
+  const lineGlow = 7;
+
+  // Glow line.
+  const glow = colorWithAlpha(entry.color, 0.35);
+  ctx.strokeStyle = glow;
+  ctx.lineWidth = lineGlow;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+  ctx.stroke();
+
+  // Main line.
+  ctx.strokeStyle = entry.color;
+  ctx.lineWidth = lineMain;
+  ctx.beginPath();
+  pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+  ctx.stroke();
+
+  // Star dots with halo.
+  for (const p of pts) {
+    const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowR);
+    g.addColorStop(0, "rgba(255,255,255,0.9)");
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, glowR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, dotR * 0.45, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function colorWithAlpha(color: string, alpha: number): string {
+  // Stored constellation colors look like "rgba(R, G, B, A)" — swap the alpha.
+  if (color.startsWith("rgba")) {
+    return color.replace(/,\s*([0-9.]+)\)\s*$/, `, ${alpha})`);
+  }
+  return color;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// Constellation detail — runs inside the shared `#gal-overlay` chrome.
+//
+// Two render modes:
+//   off → simple decorative canvas (drawConstellationMini), constellation
+//         centered at bbox-fit scale.
+//   on  → full UniverseRenderer with effects + nebulae + halo + diffraction
+//         spikes (same visuals as Today). View anchored on the constellation
+//         so the registered universe shows around it without changing scale.
+//
+// Holds module-level cleanup so closeConstellationDetail can be called from
+// anywhere (close button, tab switch, delete commit).
+interface ConstellationDetailHandle {
+  entry: ConstellationCodexEntry;
+  ro: ResizeObserver;
+  galaxyRenderer: UniverseRenderer | null;
+  galaxyPayload: GalaxyPayload | null;
+  showGalaxy: boolean;
+}
+interface GalaxyPayload {
+  universe: Universe;
+  stars: Star[];
+  planets: Planet[];
+  nebulae: Nebula[];
+  constellations: ConstellationT[];
+}
+
+let openConstellationHandle: ConstellationDetailHandle | null = null;
+
+export function closeConstellationDetail(): void {
+  if (!openConstellationHandle) return;
+  openConstellationHandle.galaxyRenderer?.stop();
+  openConstellationHandle.ro.disconnect();
+  openConstellationHandle = null;
+  const overlay = document.getElementById("gal-overlay");
+  const frame = document.getElementById("gal-overlay-frame");
+  if (overlay) overlay.hidden = true;
+  if (frame) frame.innerHTML = "";
+}
+
+function openConstellationDetail(entry: ConstellationCodexEntry): void {
+  const overlay = document.getElementById("gal-overlay");
+  const frame = document.getElementById("gal-overlay-frame");
+  if (!overlay || !frame) return;
+
+  // Tear down any previous detail session so its rAF / observers don't
+  // outlive the canvas they were attached to.
+  if (openConstellationHandle) {
+    openConstellationHandle.galaxyRenderer?.stop();
+    openConstellationHandle.ro.disconnect();
+    openConstellationHandle = null;
+  }
+
+  const date = entry.created_at.slice(0, 10).replace(/-/g, ".");
+  const cluster = entry.cluster_name ?? entry.universe_date;
+
+  frame.innerHTML = `
+    <canvas id="const-detail-canvas" class="const-detail-canvas"></canvas>
+    <div class="planet-overlay" id="const-planet-overlay"></div>
+    <button class="const-galaxy-toggle" id="const-galaxy-toggle" type="button" aria-pressed="false">
+      은하 보이기
+    </button>
+    <div class="info-strip">
+      <div class="const-detail-text">
+        <div class="date">${escapeHtml(entry.name)}</div>
+        <div class="meta">${date} · ${escapeHtml(cluster)} · 별 ${entry.stars.length}개</div>
+      </div>
+      <button class="const-delete-btn" id="const-delete-${entry.id}" type="button">삭제</button>
+    </div>
+    <div class="const-confirm" id="const-confirm" hidden>
+      <div class="const-confirm-card">
+        <div class="const-confirm-title">별자리를 삭제할까요?</div>
+        <div class="const-confirm-body">
+          <b>${escapeHtml(entry.name)}</b> 별자리가 도감에서 제거됩니다.<br/>
+          이 동작은 되돌릴 수 없습니다.
+        </div>
+        <div class="const-confirm-actions">
+          <button class="const-confirm-cancel" id="const-confirm-cancel" type="button">취소</button>
+          <button class="const-confirm-ok" id="const-confirm-ok" type="button">삭제</button>
+        </div>
+      </div>
+    </div>
+  `;
+  overlay.hidden = false;
+
+  const ro = new ResizeObserver(() => paint());
+  const canvasEl = document.getElementById("const-detail-canvas");
+  if (canvasEl) ro.observe(canvasEl);
+
+  const handle: ConstellationDetailHandle = {
+    entry,
+    ro,
+    galaxyRenderer: null,
+    galaxyPayload: null,
+    showGalaxy: false,
+  };
+  openConstellationHandle = handle;
+
+  function paint() {
+    const canvas = document.getElementById(
+      "const-detail-canvas",
+    ) as HTMLCanvasElement | null;
+    if (!canvas) return;
+    if (handle.showGalaxy && handle.galaxyPayload) {
+      paintGalaxyMode(canvas, handle);
+    } else {
+      handle.galaxyRenderer?.stop();
+      handle.galaxyRenderer = null;
+      // Plain decorative mode — clear any planet pins from the previous render.
+      const pinLayer = document.getElementById("const-planet-overlay");
+      if (pinLayer) pinLayer.innerHTML = "";
+      drawConstellationMini(canvas, entry, { showGalaxy: false });
+    }
+  }
+
+  requestAnimationFrame(paint);
+
+  const toggle = document.getElementById("const-galaxy-toggle") as HTMLButtonElement | null;
+  toggle?.addEventListener("click", async () => {
+    handle.showGalaxy = !handle.showGalaxy;
+    toggle.setAttribute("aria-pressed", String(handle.showGalaxy));
+    toggle.textContent = handle.showGalaxy ? "은하 끄기" : "은하 보이기";
+    if (handle.showGalaxy && !handle.galaxyPayload) {
+      try {
+        const payload = await invoke<GalaxyPayload | null>("get_universe_by_id", {
+          universeId: entry.universe_id,
+        });
+        handle.galaxyPayload = payload;
+      } catch (e) {
+        console.error("constellation galaxy fetch:", e);
+      }
+    }
+    paint();
+  });
+
+  const deleteBtn = document.getElementById(`const-delete-${entry.id}`);
+  const confirmPanel = document.getElementById("const-confirm");
+  const confirmCancel = document.getElementById("const-confirm-cancel");
+  const confirmOk = document.getElementById("const-confirm-ok");
+  deleteBtn?.addEventListener("click", () => {
+    if (confirmPanel) confirmPanel.hidden = false;
+  });
+  confirmCancel?.addEventListener("click", () => {
+    if (confirmPanel) confirmPanel.hidden = true;
+  });
+  confirmOk?.addEventListener("click", async () => {
+    try {
+      await invoke("delete_constellation", { constellationId: entry.id });
+    } catch (e) {
+      console.error("delete_constellation:", e);
+    }
+    closeConstellationDetail();
+    await refresh();
+  });
+}
+
+// Galaxy-on render path: feed the full universe through UniverseRenderer with
+// the camera framing the constellation at its bbox-fit scale, then highlight
+// the constellation as a temporary entry on top of any existing ones.
+function paintGalaxyMode(canvas: HTMLCanvasElement, h: ConstellationDetailHandle) {
+  if (!h.galaxyPayload) return;
+  const entry = h.entry;
+  const view = makeView();
+
+  const xs = entry.stars.map(([x]) => x);
+  const ys = entry.stars.map(([, y]) => y);
+  const bboxW = Math.max(40, Math.max(...xs) - Math.min(...xs));
+  const bboxH = Math.max(40, Math.max(...ys) - Math.min(...ys));
+  const cxW = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const cyW = (Math.min(...ys) + Math.max(...ys)) / 2;
+
+  // worldToScreen = (wx - view.x) * SCALE * view.zoom, with SCALE = 0.5.
+  // Padding (~50 px on a 480 wide canvas) keeps the constellation off the
+  // edges. The zoom is clamped to the camera's max range.
+  const pad = 50;
+  const zoomX = (DISPLAY_W - pad * 2) / (bboxW * 0.5);
+  const zoomY = (DISPLAY_H - pad * 2) / (bboxH * 0.5);
+  view.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.min(zoomX, zoomY)));
+  view.x = cxW - DISPLAY_W / (2 * 0.5 * view.zoom);
+  view.y = cyW - DISPLAY_H / (2 * 0.5 * view.zoom);
+  clampCamera(view);
+
+  // Build/refresh the renderer.
+  if (!h.galaxyRenderer) {
+    h.galaxyRenderer = new UniverseRenderer(canvas);
+  }
+  // Show our constellation on top of any others stored for that universe.
+  // Filter out the same id so the highlighted version doesn't draw twice.
+  const others = h.galaxyPayload.constellations.filter((c) => c.id !== entry.id);
+  const highlighted: ConstellationT = {
+    id: entry.id,
+    universe_id: entry.universe_id,
+    name: entry.name,
+    color: entry.color,
+    star_ids: [],   // unused by renderer (we recompute by index below)
+    preset_id: null,
+    created_at: entry.created_at,
+  };
+  // Rebuild star_ids: the codex entry stores (x, y) pairs; we need ids to
+  // match the universe stars. Map by exact position — same DB origin so the
+  // floats round-trip exactly.
+  const idByPos = new Map<string, number>();
+  for (const s of h.galaxyPayload.stars) {
+    idByPos.set(`${s.position_x}|${s.position_y}`, s.id);
+  }
+  highlighted.star_ids = entry.stars
+    .map(([x, y]) => idByPos.get(`${x}|${y}`))
+    .filter((id): id is number => typeof id === "number");
+
+  h.galaxyRenderer.request(view, {
+    stars: h.galaxyPayload.stars,
+    nebulae: h.galaxyPayload.nebulae,
+    constellations: [...others, highlighted],
+    currentConstellation: null,
+    hoveredStarId: null,
+    effects: buildEffects(h.galaxyPayload.universe.seed),
+  });
+
+  // Planet pins overlay (same widget as Today / Gallery).
+  paintGalaxyModePlanetPins(view, h.galaxyPayload.planets);
+}
+
+const PIN_BASE_PX = 26;
+const PIN_MIN_PX = 14;
+const PIN_MAX_PX = 96;
+const PIN_SPRITE_HALF_PX = 22;
+
+function paintGalaxyModePlanetPins(
+  view: ReturnType<typeof makeView>,
+  planets: Planet[],
+) {
+  const layer = document.getElementById("const-planet-overlay");
+  if (!layer) return;
+  if (layer.children.length !== planets.length) {
+    layer.innerHTML = planets.map(renderConstPinHtml).join("");
+  }
+  const visibleW = UNIVERSE_W / view.zoom;
+  const visibleH = UNIVERSE_H / view.zoom;
+  const sizePx = Math.max(
+    PIN_MIN_PX,
+    Math.min(PIN_MAX_PX, PIN_BASE_PX + (view.zoom - 1) * 10),
+  );
+  const pinScale = sizePx / PIN_BASE_PX;
+  const rect = layer.getBoundingClientRect();
+  const wrapW = rect.width || 1;
+  const wrapH = rect.height || 1;
+  const spriteHalfPx = PIN_SPRITE_HALF_PX * pinScale;
+  const marginX = spriteHalfPx / wrapW;
+  const marginY = spriteHalfPx / wrapH;
+
+  layer.querySelectorAll<HTMLElement>(".planet-pin").forEach((el) => {
+    const px = parseFloat(el.dataset.px ?? "0");
+    const py = parseFloat(el.dataset.py ?? "0");
+    const nx = (px - view.x) / visibleW;
+    const ny = (py - view.y) / visibleH;
+    if (
+      nx < marginX ||
+      nx > 1 - marginX ||
+      ny < marginY ||
+      ny > 1 - marginY
+    ) {
+      el.classList.add("off-screen");
+      return;
+    }
+    el.classList.remove("off-screen");
+    el.style.left = `${nx * 100}%`;
+    el.style.top = `${ny * 100}%`;
+    el.style.setProperty("--pin-scale", pinScale.toFixed(3));
+  });
+}
+
+function renderConstPinHtml(p: Planet): string {
+  const spec = PLANET_BY_ID[p.planet_type];
+  const orb = spec ? planetSvg(spec, 26) : "";
+  const tierLabel = RARITY_LABEL[p.rarity];
+  const prob = TIER_PROBABILITY[p.rarity];
+  const displayName = spec?.name ?? p.planet_type;
+  return `
+    <div class="planet-pin"
+         data-planet-id="${p.id}"
+         data-rarity="${p.rarity}"
+         data-new="false"
+         data-px="${p.position_x}"
+         data-py="${p.position_y}">
+      <div class="pin-halo"></div>
+      <div class="pin-svg-wrap">${orb}</div>
+      <div class="pin-tooltip">
+        <span class="pin-tt-name">${displayName}</span>
+        <span class="pin-tt-meta">${tierLabel.toUpperCase()} · ${prob}</span>
+      </div>
+    </div>
+  `;
+}
+
+// Closable from main.ts on tab switch.
+export function closePlanetModal(): void {
   const modal = document.getElementById("planet-modal");
   if (modal) modal.hidden = true;
 }

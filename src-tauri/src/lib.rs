@@ -37,6 +37,8 @@ pub fn run() {
             commands::get_codex,
             commands::get_achievements,
             commands::save_constellation,
+            commands::list_constellation_codex,
+            commands::delete_constellation,
             commands::get_universe_by_id,
             commands::get_gallery,
             commands::get_pending_discoveries,
@@ -63,6 +65,11 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir).expect("create app data dir");
             let db_path = data_dir.join("tokenova.sqlite3");
             let db = Arc::new(Db::open(&db_path).expect("db opens"));
+            // True only on the very first launch (no bootstrap sentinel row
+            // in `watch_state` yet). Watchers use this to skip-to-end so a
+            // fresh install starts at 0 tokens instead of ingesting the
+            // user's entire prior Claude / Codex / OpenCode history.
+            let first_run = !db.is_bootstrapped().unwrap_or(false);
             app.manage(db.clone());
 
             // --- Notifier ---
@@ -84,12 +91,22 @@ pub fn run() {
             SessionManager::new(db.clone(), closed_tx).spawn(events_rx_session);
 
             // --- Watchers ---
-            let claude_handle = spawn_claude_code_watcher(db.clone(), events_tx.clone())
-                .expect("claude code watcher initialized");
-            let codex_handle = spawn_codex_cli_watcher(db.clone(), events_tx.clone())
-                .expect("codex cli watcher initialized");
-            spawn_opencode_watcher(db.clone(), events_tx.clone())
+            let claude_handle =
+                spawn_claude_code_watcher(db.clone(), events_tx.clone(), first_run)
+                    .expect("claude code watcher initialized");
+            let codex_handle =
+                spawn_codex_cli_watcher(db.clone(), events_tx.clone(), first_run)
+                    .expect("codex cli watcher initialized");
+            spawn_opencode_watcher(db.clone(), events_tx.clone(), first_run)
                 .expect("opencode watcher initialized");
+            // Mark bootstrap done so subsequent launches resume incremental
+            // ingestion. Each watcher's bootstrap task captured `first_run`
+            // by value already, so toggling the sentinel here is race-free.
+            if first_run {
+                if let Err(e) = db.mark_bootstrapped() {
+                    eprintln!("[bootstrap] failed to mark complete: {e:#}");
+                }
+            }
             // Hold the JSONL watcher handles for the lifetime of the app.
             app.manage(
                 Mutex::new((claude_handle, codex_handle)) as Mutex<(WatcherHandle, WatcherHandle)>

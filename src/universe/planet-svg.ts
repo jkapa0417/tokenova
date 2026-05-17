@@ -436,7 +436,27 @@ const RENDERERS: Record<string, Renderer> = {
   bigEye(ctx) {
     const { cx, cy, r, c1, c2, uid } = ctx;
     const irid = `iris-rad-${uid}`;
-    const out: string[] = [
+    // Iris contents — wrapped in two animated groups: outer scaleY for blink,
+    // inner translate for look-around. Origin pinned at the eye center.
+    const eyeContents: string[] = [
+      `<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r * 0.6)}" fill="${mixHex(c1, "#dc9b3a", 0.5)}" />`,
+      `<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r * 0.6)}" fill="url(#${irid})" />`,
+    ];
+    for (let i = 0; i < 20; i++) {
+      const a = (i / 20) * Math.PI * 2;
+      eyeContents.push(
+        `<line x1="${n(cx + Math.cos(a) * r * 0.18)}" y1="${n(cy + Math.sin(a) * r * 0.18)}" x2="${n(cx + Math.cos(a) * r * 0.56)}" y2="${n(cy + Math.sin(a) * r * 0.56)}" stroke="${mixHex(c2, "#000", 0.4)}" stroke-width="0.4" opacity="0.55" />`,
+      );
+    }
+    eyeContents.push(
+      `<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r * 0.22)}" fill="#0a0a14" />`,
+      `<circle cx="${n(cx + r * 0.08)}" cy="${n(cy - r * 0.08)}" r="${n(r * 0.06)}" fill="#fff" opacity="0.95" />`,
+      `<circle cx="${n(cx - r * 0.05)}" cy="${n(cy + r * 0.1)}" r="${n(r * 0.03)}" fill="#fff" opacity="0.6" />`,
+    );
+
+    const blink = ` style="transform-origin: ${n(cx)}px ${n(cy)}px; animation: eye-blink 5.5s ease-in-out infinite;"`;
+    const look = ` style="transform-origin: ${n(cx)}px ${n(cy)}px; animation: eye-look 11s ease-in-out infinite;"`;
+    return [
       `<defs>
         <radialGradient id="${irid}" cx="50%" cy="50%" r="50%">
           <stop offset="0%" stop-color="#ffeaa0" stop-opacity="0.85" />
@@ -444,21 +464,8 @@ const RENDERERS: Record<string, Renderer> = {
           <stop offset="100%" stop-color="#5a4220" stop-opacity="0.9" />
         </radialGradient>
       </defs>`,
-      `<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r * 0.6)}" fill="${mixHex(c1, "#dc9b3a", 0.5)}" />`,
-      `<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r * 0.6)}" fill="url(#${irid})" />`,
+      `<g${blink}><g${look}>${eyeContents.join("")}</g></g>`,
     ];
-    for (let i = 0; i < 20; i++) {
-      const a = (i / 20) * Math.PI * 2;
-      out.push(
-        `<line x1="${n(cx + Math.cos(a) * r * 0.18)}" y1="${n(cy + Math.sin(a) * r * 0.18)}" x2="${n(cx + Math.cos(a) * r * 0.56)}" y2="${n(cy + Math.sin(a) * r * 0.56)}" stroke="${mixHex(c2, "#000", 0.4)}" stroke-width="0.4" opacity="0.55" />`,
-      );
-    }
-    out.push(
-      `<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r * 0.22)}" fill="#0a0a14" />`,
-      `<circle cx="${n(cx + r * 0.08)}" cy="${n(cy - r * 0.08)}" r="${n(r * 0.06)}" fill="#fff" opacity="0.95" />`,
-      `<circle cx="${n(cx - r * 0.05)}" cy="${n(cy + r * 0.1)}" r="${n(r * 0.03)}" fill="#fff" opacity="0.6" />`,
-    );
-    return out;
   },
 
   structures(ctx) {
@@ -510,17 +517,36 @@ const RENDER_ORDER = [
   "facets", "sparkle", "highlight",
 ];
 
+// Planets that should not spin — their identity comes from a fixed pose.
+// `dyson_sphere` is handled by its dedicated renderer so it's not listed here.
+const NO_ROTATE = new Set(["eye_world", "mask", "twilight"]);
+
+/** Build the inline `style` for a continuous spin (or "" for no-rotate). */
+function spinStyle(seed: number, cx: number, cy: number, animated: boolean, planetId: string): string {
+  if (!animated || NO_ROTATE.has(planetId)) return "";
+  const baseDur = 24 + (seed % 16);   // 24–40s, seed-stable
+  return ` style="transform-origin: ${n(cx)}px ${n(cy)}px; animation: planet-spin ${baseDur}s linear infinite;"`;
+}
+
+/** Counter-rotating ring style (used for ancient_civilization). */
+function ringSpinStyle(seed: number, cx: number, cy: number, animated: boolean, planetId: string): string {
+  if (!animated || planetId !== "ancient_civilization") return "";
+  const baseDur = 24 + (seed % 16);
+  return ` style="transform-origin: ${n(cx)}px ${n(cy)}px; animation: planet-spin ${(baseDur * 1.8).toFixed(1)}s linear infinite reverse;"`;
+}
+
 // ─────────────────────── main entry point ───────────────────────
 
-export function planetSvg(spec: PlanetSpec, size = 64): string {
-  if (spec.features.dyson) return dysonSphereSvg(spec.id, size);
+export function planetSvg(spec: PlanetSpec, size = 64, animated = true): string {
+  if (spec.features.dyson) return dysonSphereSvg(spec.id, size, animated);
 
   const [c1, c2, c3] = spec.palette;
   const f = spec.features;
   const r = size * 0.36;
   const cx = size / 2;
   const cy = size / 2;
-  const rng = mulberry32(seedFromId(spec.id));
+  const seed = seedFromId(spec.id);
+  const rng = mulberry32(seed);
   const uid = spec.id.replace(/_/g, "-");
 
   const ctx: FeatCtx = {
@@ -543,6 +569,14 @@ export function planetSvg(spec: PlanetSpec, size = 64): string {
       <ellipse cx="${n(cx)}" cy="${n(cy)}" rx="${n(r * 1.18)}" ry="${n(r * 0.25)}" fill="none" stroke="${c1}" stroke-width="0.6" opacity="0.4" />
     `
     : "";
+
+  const surfaceStyle = spinStyle(seed, cx, cy, animated, spec.id);
+  const ringStyle = ringSpinStyle(seed, cx, cy, animated, spec.id);
+
+  // `eye_world` uses its own blink + look-around animations on the bigEye
+  // feature renderer (see RENDERERS.bigEye). The surface group must be
+  // motionless so those animations aren't transformed twice.
+  const isEyeWorld = spec.id === "eye_world";
 
   return `<svg viewBox="0 0 ${size} ${size}" class="planet-orb-svg" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
     <defs>
@@ -582,28 +616,29 @@ export function planetSvg(spec: PlanetSpec, size = 64): string {
 
     ${f.atmo ? `<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r * 1.08)}" fill="none" stroke="${c1}" stroke-width="1.1" opacity="0.4" />` : ""}
 
-    ${ringEls ? `<g style="clip-path: inset(0 0 50% 0);">${ringEls}</g>` : ""}
+    ${ringEls ? `<g${ringStyle}><g style="clip-path: inset(0 0 50% 0);">${ringEls}</g></g>` : ""}
 
     <circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r)}" fill="url(#g-${uid})" />
 
-    <g clip-path="url(#clip-${uid})">
+    <g clip-path="url(#clip-${uid})"${isEyeWorld ? "" : surfaceStyle}>
       ${layers.join("\n")}
       <circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r)}" fill="url(#sphere-shadow-${uid})" />
       <circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r - 0.5)}" fill="none" stroke="url(#rim-${uid})" stroke-width="1.2" opacity="0.55" />
     </g>
 
-    ${ringEls}
+    ${ringEls ? `<g${ringStyle}>${ringEls}</g>` : ""}
   </svg>`;
 }
 
 // ─────────────────────── Dyson sphere ───────────────────────
 
-function dysonSphereSvg(id: string, size: number): string {
+function dysonSphereSvg(id: string, size: number, animated = true): string {
   const uid = id.replace(/_/g, "-");
   const r = size * 0.42;
   const cx = size / 2;
   const cy = size / 2;
 
+  // Hex panels light up in a circular sequence — each panel offset by 2.4s / 8.
   const hexes: string[] = [];
   const hexRing = r * 0.75;
   for (let i = 0; i < 8; i++) {
@@ -616,9 +651,11 @@ function dysonSphereSvg(id: string, size: number): string {
       const ah = (j / 6) * Math.PI * 2 - Math.PI / 2;
       pts.push(`${n(cxh + Math.cos(ah) * hsize)},${n(cyh + Math.sin(ah) * hsize)}`);
     }
-    const fill = i % 2 === 0 ? "rgba(240,140,109,0.18)" : "rgba(240,140,109,0.08)";
+    const hexAnim = animated
+      ? ` style="animation: hex-pulse 2.4s ease-in-out infinite; animation-delay: ${((i / 8) * 2.4).toFixed(2)}s;"`
+      : "";
     hexes.push(
-      `<polygon points="${pts.join(" ")}" fill="${fill}" stroke="#f08c6d" stroke-width="0.8" opacity="0.95" />`,
+      `<polygon points="${pts.join(" ")}" fill="rgba(240,140,109,0.18)" stroke="#f08c6d" stroke-width="0.8"${hexAnim} />`,
     );
   }
 
@@ -629,6 +666,16 @@ function dysonSphereSvg(id: string, size: number): string {
       `<line x1="${n(cx + Math.cos(a) * r * 0.35)}" y1="${n(cy + Math.sin(a) * r * 0.35)}" x2="${n(cx + Math.cos(a) * r * 0.7)}" y2="${n(cy + Math.sin(a) * r * 0.7)}" stroke="#f08c6d" stroke-width="0.4" opacity="0.4" />`,
     );
   }
+
+  const beamsStyle = animated
+    ? ` style="transform-origin: ${n(cx)}px ${n(cy)}px; animation: planet-spin 36s linear infinite;"`
+    : "";
+  const hexStyle = animated
+    ? ` style="transform-origin: ${n(cx)}px ${n(cy)}px; animation: planet-spin 60s linear infinite reverse;"`
+    : "";
+  const coronaStyle = animated
+    ? ` style="transform-origin: ${n(cx)}px ${n(cy)}px; animation: corona-pulse 4s ease-in-out infinite;"`
+    : "";
 
   return `<svg viewBox="0 0 ${size} ${size}" class="planet-orb-svg" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
     <defs>
@@ -642,11 +689,11 @@ function dysonSphereSvg(id: string, size: number): string {
         <stop offset="100%" stop-color="#ffb070" stop-opacity="0" />
       </radialGradient>
     </defs>
-    <circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r * 1.5)}" fill="url(#coron-${uid})" />
+    <circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r * 1.5)}" fill="url(#coron-${uid})"${coronaStyle} />
     <circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r * 0.42)}" fill="url(#star-${uid})" />
     <circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r * 0.22)}" fill="#fffce8" opacity="0.95" />
-    ${beams.join("\n")}
+    <g${beamsStyle}>${beams.join("\n")}</g>
     <circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r * 0.92)}" fill="none" stroke="#f08c6d" stroke-width="0.6" opacity="0.5" />
-    ${hexes.join("\n")}
+    <g${hexStyle}>${hexes.join("\n")}</g>
   </svg>`;
 }

@@ -1,28 +1,5 @@
 /* Tokenova — design system v2 (gold accent, mono numerics, popover-sized tray) */
-
-@font-face {
-  font-family: "Geist";
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-  src: url("/src/assets/fonts/GeistVariable.woff2") format("woff2-variations");
-}
-
-@font-face {
-  font-family: "JetBrains Mono";
-  font-weight: 100 800;
-  font-style: normal;
-  font-display: swap;
-  src: url("/src/assets/fonts/JetBrainsMonoVariable.woff2") format("woff2-variations");
-}
-
-@font-face {
-  font-family: "Pretendard Variable";
-  font-weight: 45 920;
-  font-style: normal;
-  font-display: swap;
-  src: url("/src/assets/fonts/PretendardVariable.woff2") format("woff2-variations");
-}
+/* Geist / JetBrains Mono / Pretendard are loaded via CDN in index.html. */
 
 :root {
   color-scheme: dark;
@@ -56,6 +33,33 @@
     "Pretendard Variable", Pretendard, "Apple SD Gothic Neo", "Noto Sans CJK KR",
     sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+}
+
+/* ───────────── Planet & UI animations (used by inline svg styles) ───────────── */
+@keyframes planet-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes hex-pulse {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 1; }
+}
+@keyframes corona-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50%      { transform: scale(1.08); opacity: 1; }
+}
+@keyframes eye-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  94%, 97%      { transform: scaleY(0.06); }
+}
+@keyframes eye-look {
+  0%, 100% { transform: translate(0, 0); }
+  25%      { transform: translate(1%, -0.5%); }
+  50%      { transform: translate(-0.8%, 0.8%); }
+  75%      { transform: translate(0.3%, -0.8%); }
+}
+@keyframes bar-rise {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -505,6 +509,15 @@ button {
 .star-counter b { color: var(--fg-0); font-weight: 500; }
 .star-counter .sep { color: var(--fg-4); margin: 0 2px; }
 .star-counter .gtype { color: var(--gold); font-weight: 500; }
+.star-counter .planet-glyph {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 1px;
+  color: var(--fg-2);
+  /* Lift the glyph a hair so it sits on the same baseline as the numbers. */
+  transform: translateY(-0.5px);
+}
+.star-counter .planet-glyph svg { display: block; }
 
 .session-meta {
   margin-top: 6px;
@@ -525,6 +538,122 @@ button {
 }
 .hint-row b { color: var(--fg-2); font-weight: 500; }
 .hint-row .sep { margin: 0 6px; opacity: 0.5; }
+
+/* ───────────── Constellation drawing bar (shown while drawing) ───────────── */
+.draw-bar {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 130px;
+  background: rgba(10, 10, 20, 0.94);
+  border: 0.5px solid rgba(212, 168, 87, 0.35);
+  border-radius: 10px;
+  padding: 10px 12px;
+  z-index: 6;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  animation: bar-rise 200ms cubic-bezier(.2, .7, .2, 1);
+}
+.draw-bar[hidden] { display: none; }
+.draw-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.draw-bar-label {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-1);
+  letter-spacing: 0.04em;
+}
+.draw-bar-label b {
+  color: var(--gold);
+  font-weight: 500;
+  font-size: 13px;
+  margin: 0 2px;
+}
+.draw-bar-label .muted {
+  color: var(--fg-3);
+  margin-left: 4px;
+}
+.draw-bar-btn {
+  background: transparent;
+  border: 0.5px solid var(--line-2);
+  color: var(--fg-1);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 120ms;
+}
+.draw-bar-btn:hover { background: rgba(255, 255, 255, 0.05); color: var(--fg-0); }
+.draw-bar-btn.ghost { color: var(--fg-2); }
+.draw-bar-btn.primary {
+  background: rgba(212, 168, 87, 0.15);
+  border-color: rgba(212, 168, 87, 0.5);
+  color: var(--gold);
+}
+.draw-bar-btn.primary:hover {
+  background: rgba(212, 168, 87, 0.25);
+  color: #ffe4b0;
+}
+.draw-bar-btn:disabled { opacity: 0.4; cursor: default; }
+.draw-bar-btn:disabled:hover { background: transparent; }
+.draw-bar-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.04);
+  border: 0.5px solid var(--line-2);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--fg-0);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  outline: none;
+  transition: border-color 120ms;
+}
+.draw-bar-input:focus { border-color: var(--gold); }
+.draw-bar-input::placeholder { color: var(--fg-3); font-style: italic; }
+.draw-bar-hint {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--fg-3);
+  letter-spacing: 0.02em;
+}
+
+/* Cluster / zoom / mood badges live inside the today-header row. */
+.th-mood {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  margin-right: 8px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 0.5px solid currentColor;
+  color: var(--gold);
+  opacity: 0.85;
+}
+.th-mood[hidden] { display: none; }
+.th-layout {
+  display: inline-block;
+  margin-right: 8px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--gold);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border: 0.5px solid rgba(212, 168, 87, 0.35);
+  border-radius: 4px;
+}
+.th-layout[hidden] { display: none; }
 
 /* tiny galaxy glyph (bars) next to star count */
 .gly {
@@ -625,6 +754,229 @@ button {
   letter-spacing: 0.04em;
 }
 .tier-rule { flex: 1; height: 1px; background: var(--line); }
+
+/* ───────────── Codex sub-tabs (planets / constellations) ───────────── */
+.codex-subtabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 14px;
+  padding: 3px;
+  background: var(--bg-1);
+  border-radius: 8px;
+  border: 0.5px solid var(--line);
+}
+.codex-subtabs button {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  padding: 7px 0;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-2);
+  cursor: pointer;
+  transition: color 120ms, background 120ms;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.codex-subtabs button:hover { color: var(--fg-1); }
+.codex-subtabs button.on {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--fg-0);
+}
+.codex-subtabs button .num {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-3);
+}
+.codex-subtabs button.on .num { color: var(--gold); }
+
+/* ───────────── Constellation cards ───────────── */
+.constellation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.const-card {
+  background: linear-gradient(180deg, var(--bg-2) 0%, var(--bg-1) 100%);
+  border: 0.5px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 10px 12px;
+  cursor: pointer;
+  transition: transform 180ms cubic-bezier(.2, .7, .2, 1),
+              border-color 180ms ease,
+              background 180ms ease;
+  position: relative;
+  overflow: hidden;
+  will-change: transform;
+}
+.const-card:hover {
+  border-color: rgba(212, 168, 87, 0.4);
+  background: linear-gradient(180deg, var(--bg-3) 0%, var(--bg-2) 100%);
+  transform: translateY(-1px);
+}
+.const-vis {
+  aspect-ratio: 1.4;
+  background: #07080c;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  position: relative;
+}
+.const-mini-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.const-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg-0);
+  margin-bottom: 3px;
+}
+.const-meta {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--fg-3);
+  letter-spacing: 0.02em;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+.const-meta .sep { opacity: 0.5; }
+.const-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--fg-3);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.const-detail-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.const-galaxy-toggle {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 20;
+  background: rgba(10, 10, 20, 0.75);
+  border: 0.5px solid var(--line-2);
+  color: var(--fg-1);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.const-galaxy-toggle:hover {
+  background: rgba(212, 168, 87, 0.18);
+  border-color: rgba(212, 168, 87, 0.5);
+  color: var(--gold);
+}
+.const-galaxy-toggle[aria-pressed="true"] {
+  background: rgba(212, 168, 87, 0.18);
+  border-color: rgba(212, 168, 87, 0.5);
+  color: var(--gold);
+}
+
+/* ───────────── Constellation delete-confirm modal ───────────── */
+.const-confirm {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 6, 9, 0.78);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+  animation: fadein 160ms ease;
+}
+.const-confirm[hidden] { display: none; }
+.const-confirm-card {
+  width: min(320px, 80%);
+  background: linear-gradient(180deg, var(--bg-2) 0%, var(--bg-1) 100%);
+  border: 0.5px solid rgba(255, 100, 100, 0.4);
+  border-radius: 12px;
+  padding: 18px 18px 14px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.7);
+  text-align: center;
+}
+.const-confirm-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg-0);
+  margin-bottom: 8px;
+}
+.const-confirm-body {
+  font-size: 12px;
+  color: var(--fg-2);
+  line-height: 1.55;
+  margin-bottom: 16px;
+}
+.const-confirm-body b {
+  color: var(--fg-0);
+  font-weight: 500;
+}
+.const-confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.const-confirm-cancel,
+.const-confirm-ok {
+  flex: 1;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 8px 0;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.const-confirm-cancel {
+  background: transparent;
+  border: 0.5px solid var(--line-2);
+  color: var(--fg-1);
+}
+.const-confirm-cancel:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--fg-0);
+}
+.const-confirm-ok {
+  background: rgba(255, 100, 100, 0.18);
+  border: 0.5px solid rgba(255, 100, 100, 0.5);
+  color: #ff8585;
+}
+.const-confirm-ok:hover {
+  background: rgba(255, 100, 100, 0.28);
+  color: #ffaaaa;
+}
+.const-detail-text { display: flex; flex-direction: column; gap: 4px; }
+.const-delete-btn {
+  background: transparent;
+  border: 0.5px solid rgba(255, 100, 100, 0.4);
+  color: #ff7a7a;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.const-delete-btn:hover {
+  background: rgba(255, 100, 100, 0.1);
+  color: #ff9090;
+}
 
 .codex-grid {
   display: grid;
@@ -819,7 +1171,11 @@ button {
   justify-content: center;
   flex-shrink: 0;
   color: var(--fg-3);
-  font-size: 16px;
+}
+.ach-icon svg {
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 .ach-card.unlocked .ach-icon {
   background: rgba(212, 168, 87, 0.12);
@@ -1252,9 +1608,9 @@ button {
   position: absolute;
   top: 14px;
   right: 14px;
-  background: transparent;
+  background: rgba(10, 10, 20, 0.7);
   border: 0.5px solid var(--line-2);
-  color: var(--fg-2);
+  color: var(--fg-1);
   width: 28px;
   height: 28px;
   border-radius: 50%;
@@ -1262,8 +1618,11 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 2;
+  /* Sits above the new gal-header (z-index 4) so the corner click stays
+     hot. Backdrop-filter softens the underlying canvas through the gap. */
+  z-index: 20;
   font-size: 16px;
+  backdrop-filter: blur(4px);
 }
 .gal-overlay .close:hover { color: var(--fg-0); border-color: var(--fg-2); }
 .gal-overlay .frame {
@@ -1286,9 +1645,136 @@ button {
   padding: 14px 16px;
   background: linear-gradient(to top, rgba(7, 8, 12, 0.95), transparent);
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* Strip itself is non-interactive — clicks fall through to the canvas
+     underneath — but interactive children (delete button, etc.) opt back
+     into pointer events. */
+  pointer-events: none;
+  z-index: 4;
+}
+.gal-overlay .info-strip > * { pointer-events: auto; }
+/* Today-style layout inside .frame: vertical stack of header / stage / hud. */
+.gal-overlay .frame {
+  display: flex;
+  flex-direction: column;
+  justify-content: stretch;
+  align-items: stretch;
+}
+.gal-overlay .gal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(to bottom, rgba(18, 20, 32, 0.7), rgba(10, 10, 20, 0));
+  flex-shrink: 0;
+  z-index: 4;
+}
+.gal-overlay .gal-cluster {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.gal-overlay .gal-cluster .th-glyph {
+  width: 14px;
+  height: 14px;
+  border: 0.5px solid rgba(212, 168, 87, 0.5);
+  position: relative;
+  border-radius: 3px;
+}
+.gal-overlay .gal-cluster .th-glyph::before {
+  content: '';
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  background: var(--gold);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+.gal-overlay .gal-cluster-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--gold);
+  letter-spacing: 0.08em;
+}
+.gal-overlay .gal-cluster-sub {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--fg-3);
+  letter-spacing: 0.05em;
+  margin-left: 4px;
+}
+.gal-overlay .gal-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-3);
+  letter-spacing: 0.06em;
+}
+.gal-overlay .gal-header-right .th-zoom-lbl { letter-spacing: 0.06em; }
+.gal-overlay .gal-header-right .th-zoom-x { color: var(--fg-1); font-size: 11px; }
+
+.gal-overlay .gal-stage {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+  background: #0a0a14;
+}
+.gal-overlay .gal-stage:active { cursor: grabbing; }
+.gal-overlay #gal-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+.gal-overlay .planet-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.gal-overlay .gal-hud {
+  padding: 14px 18px 16px;
+  border-top: 1px solid var(--line);
+  background: linear-gradient(
+    to top,
+    rgba(10, 10, 20, 0.96) 0%,
+    rgba(10, 10, 20, 0.85) 60%,
+    rgba(10, 10, 20, 0) 100%
+  );
+  flex-shrink: 0;
+  z-index: 4;
+}
+.gal-overlay .gal-hud-row1 {
+  display: flex;
   align-items: baseline;
   justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
+.gal-overlay .gal-date {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  color: var(--fg-0);
+  letter-spacing: -0.01em;
+}
+.gal-overlay .gal-hud-hint {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-3);
+  letter-spacing: 0.02em;
+}
+.gal-overlay .gal-hud-hint b { color: var(--fg-2); font-weight: 500; }
+.gal-overlay .gal-hud-hint .sep { margin: 0 6px; opacity: 0.5; }
 .gal-overlay .info-strip .date {
   font-family: var(--font-mono);
   font-size: 13px;
