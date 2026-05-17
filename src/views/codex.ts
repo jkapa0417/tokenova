@@ -19,7 +19,11 @@ import {
 } from "../universe/catalog";
 import { clampCamera, makeView, ZOOM_MAX, ZOOM_MIN } from "../universe/camera";
 import { buildEffects } from "../universe/effects";
-import { planetSvg } from "../universe/planet-svg";
+import type { PlanetCanvasHandle } from "../universe/planet-canvas";
+import {
+  disposeAllPlanetOrbs,
+  mountAllPlanetOrbs,
+} from "../universe/planet-mount";
 import { UniverseRenderer } from "../universe/renderer";
 import { mulberry32 } from "../universe/rng";
 import {
@@ -176,9 +180,14 @@ function wireSubtabs(): void {
   subtabsWired = true;
 }
 
+// Track every PlanetCanvas mounted into the planet grid so we can stop their
+// rAF loops before re-rendering or switching sub-tabs.
+let planetGridCanvases: PlanetCanvasHandle[] = [];
+
 async function refreshPlanetGrid(): Promise<void> {
   const $content = document.getElementById("codex-content");
   if (!$content) return;
+  disposeAllPlanetOrbs(planetGridCanvases);
   if (!lastPayload) {
     $content.innerHTML = `<div style="color: var(--fg-3); text-align: center; padding: 40px 0;">로딩 중…</div>`;
     return;
@@ -187,6 +196,7 @@ async function refreshPlanetGrid(): Promise<void> {
   for (const g of lastPayload.groups) for (const c of g.cards) byKey.set(c.key, c);
   $content.innerHTML = TIER_ORDER.map((tier) => renderTier(tier, byKey)).join("");
   attachClickHandlers(byKey);
+  planetGridCanvases = mountAllPlanetOrbs($content);
 }
 
 // ───────────────────── Star Codex sub-tab ─────────────────────
@@ -357,7 +367,7 @@ function renderCard(spec: PlanetSpec, card: CodexCard | undefined): string {
   return `
     <div class="planet-card tier-${tierCode}" data-key="${spec.id}">
       <div class="planet-count-badge">×${count}</div>
-      <div class="planet-orb-wrap">${planetSvg(spec, 72)}</div>
+      <div class="planet-orb-wrap" data-planet-orb data-orb-id="${spec.id}" data-orb-size="72"></div>
       <div class="planet-name">${spec.name}</div>
       <div class="planet-meta">${RARITY_LABEL[spec.rarity].toUpperCase()}</div>
     </div>
@@ -450,7 +460,7 @@ function showQuickDetail(spec: PlanetSpec, locked: boolean, card: CodexCard | un
       <div class="pm-content">
         <div class="pm-orb-wrap tier-${tierCode}">
           <div class="halo"></div>
-          ${planetSvg(spec, 180)}
+          <div class="pm-orb-canvas-host" data-planet-orb data-orb-id="${spec.id}" data-orb-size="180"></div>
         </div>
         <div class="pm-tier tier-${tierCode}">${tierLabel.toUpperCase()} · ${probability}</div>
         <div class="pm-name">${spec.name}</div>
@@ -492,7 +502,12 @@ function showQuickDetail(spec: PlanetSpec, locked: boolean, card: CodexCard | un
     }
   }
   modal.hidden = false;
+  // Mount the canvas (single — the modal shows one planet at a time).
+  disposeAllPlanetOrbs(modalCanvases);
+  modalCanvases = mountAllPlanetOrbs(body);
 }
+
+let modalCanvases: PlanetCanvasHandle[] = [];
 
 function estimateAgo(iso: string): string {
   const t = new Date(iso).getTime();
@@ -524,6 +539,7 @@ function ensureModalWired() {
 function closeModal() {
   const modal = document.getElementById("planet-modal");
   if (modal) modal.hidden = true;
+  disposeAllPlanetOrbs(modalCanvases);
 }
 
 // ───────────────────── Constellation codex sub-tab ─────────────────────
@@ -781,6 +797,7 @@ export function closeConstellationDetail(): void {
   openConstellationHandle.galaxyRenderer?.stop();
   openConstellationHandle.ro.disconnect();
   openConstellationHandle = null;
+  disposeAllPlanetOrbs(constPinCanvases);
   const overlay = document.getElementById("gal-overlay");
   const frame = document.getElementById("gal-overlay-frame");
   if (overlay) overlay.hidden = true;
@@ -974,6 +991,8 @@ const PIN_MIN_PX = 14;
 const PIN_MAX_PX = 96;
 const PIN_SPRITE_HALF_PX = 22;
 
+let constPinCanvases: PlanetCanvasHandle[] = [];
+
 function paintGalaxyModePlanetPins(
   view: ReturnType<typeof makeView>,
   planets: Planet[],
@@ -981,7 +1000,9 @@ function paintGalaxyModePlanetPins(
   const layer = document.getElementById("const-planet-overlay");
   if (!layer) return;
   if (layer.children.length !== planets.length) {
+    disposeAllPlanetOrbs(constPinCanvases);
     layer.innerHTML = planets.map(renderConstPinHtml).join("");
+    constPinCanvases = mountAllPlanetOrbs(layer);
   }
   const visibleW = UNIVERSE_W / view.zoom;
   const visibleH = UNIVERSE_H / view.zoom;
@@ -1020,10 +1041,12 @@ function paintGalaxyModePlanetPins(
 
 function renderConstPinHtml(p: Planet): string {
   const spec = PLANET_BY_ID[p.planet_type];
-  const orb = spec ? planetSvg(spec, 26) : "";
   const tierLabel = RARITY_LABEL[p.rarity];
   const prob = TIER_PROBABILITY[p.rarity];
   const displayName = spec?.name ?? p.planet_type;
+  const orbHost = spec
+    ? `<div data-planet-orb data-orb-id="${spec.id}" data-orb-size="26"></div>`
+    : "";
   return `
     <div class="planet-pin"
          data-planet-id="${p.id}"
@@ -1032,7 +1055,7 @@ function renderConstPinHtml(p: Planet): string {
          data-px="${p.position_x}"
          data-py="${p.position_y}">
       <div class="pin-halo"></div>
-      <div class="pin-svg-wrap">${orb}</div>
+      <div class="pin-svg-wrap">${orbHost}</div>
       <div class="pin-tooltip">
         <span class="pin-tt-name">${displayName}</span>
         <span class="pin-tt-meta">${tierLabel.toUpperCase()} · ${prob}</span>

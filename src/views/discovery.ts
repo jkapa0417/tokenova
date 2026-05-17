@@ -16,7 +16,8 @@ import {
   PLANET_DISPLAY_NAMES,
   RARITY_LABEL,
 } from "../universe/catalog";
-import { planetSvg } from "../universe/planet-svg";
+import type { PlanetCanvasHandle } from "../universe/planet-canvas";
+import { disposeAllPlanetOrbs, mountAllPlanetOrbs } from "../universe/planet-mount";
 import type { Planet, Rarity } from "../universe/types";
 
 const $overlay = () => document.getElementById("discovery-overlay")!;
@@ -88,6 +89,7 @@ export async function openDiscoveryOverlay(planets: Planet[]): Promise<void> {
 async function closeAll(action: "codex" | "dismiss" | "next") {
   const ids = queue.map((p) => p.id);
   $overlay().hidden = true;
+  disposeAllPlanetOrbs(discoveryCanvases);
   try {
     await invoke("acknowledge_planets", { planetIds: ids });
   } catch (e) {
@@ -136,7 +138,7 @@ function paintCard(planet: Planet) {
   const ringColor = RARITY_RING_COLOR[planet.rarity];
 
   const orbSvg = spec
-    ? planetSvg(spec, 180)
+    ? `<div data-planet-orb data-orb-id="${spec.id}" data-orb-size="180"></div>`
     : `<div style="width:180px; height:180px; border-radius:50%; background:#333; box-shadow:0 0 0 1px ${ringColor};"></div>`;
 
   // Numbers we have synchronously. Session # falls back to "—" if the planet
@@ -207,8 +209,15 @@ function paintCard(planet: Planet) {
   }
   if (codex) codex.addEventListener("click", () => void closeAll("codex"));
 
+  // Swap stale planet canvas (from the previous queue card) before mounting
+  // the new one so we don't leak a rAF.
+  disposeAllPlanetOrbs(discoveryCanvases);
+  discoveryCanvases = mountAllPlanetOrbs($card());
+
   void hydrateStats(planet);
 }
+
+let discoveryCanvases: PlanetCanvasHandle[] = [];
 
 async function hydrateStats(planet: Planet) {
   // Discovery # — count of planets at or before this id across all time.
