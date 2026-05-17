@@ -125,3 +125,10 @@ CREATE TABLE IF NOT EXISTS watch_state (
     byte_offset INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
 );
+
+-- Generic key/value settings (currently: per-provider custom watch paths).
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);

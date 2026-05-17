@@ -34,6 +34,12 @@
           <span class="dot"></span>
           <span>Gallery</span>
         </button>
+        <button class="tab tab-icon" data-tab="settings" type="button" aria-label="설정" title="설정">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="8" cy="8" r="2.4" stroke="currentColor" stroke-width="1.2" />
+            <path d="M8 1.5v2M8 12.5v2M14.5 8h-2M3.5 8h-2M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4M12.6 12.6l-1.4-1.4M4.8 4.8L3.4 3.4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+          </svg>
+        </button>
 
         <div class="topbar-spacer"></div>
 
@@ -210,6 +216,29 @@
 
             <div class="gallery-stats" id="gallery-stats"></div>
             <div id="gallery-content"></div>
+          </div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section class="view" data-view="settings" hidden>
+          <div class="scroll">
+            <div class="page-head">
+              <div>
+                <h1>설정</h1>
+                <div class="desc">LLM PROVIDERS · WATCH PATHS</div>
+              </div>
+              <div class="right">
+                <button class="settings-refresh" id="settings-refresh" type="button">
+                  새로고침
+                </button>
+              </div>
+            </div>
+            <div class="settings-section-title">LLM Providers</div>
+            <div class="settings-section-desc">
+              Tokenova가 토큰 사용을 추적하는 경로입니다. 기본 경로를 사용하지 않으면 직접 등록하세요.
+              <b>경로 변경은 앱 재시작 후 적용</b>됩니다.
+            </div>
+            <div id="settings-providers"></div>
           </div>
         </section>
 

@@ -40,8 +40,12 @@ pub fn spawn_opencode_watcher(
     db: Arc<Db>,
     events_tx: broadcast::Sender<TokenEvent>,
     first_run: bool,
+    override_path: Option<PathBuf>,
 ) -> Result<()> {
-    let opencode_path = opencode_db_path()?;
+    let opencode_path = match override_path {
+        Some(p) => p,
+        None => opencode_db_path()?,
+    };
     if !opencode_path.exists() {
         eprintln!(
             "[opencode] db not found at {:?}, watcher will not start",

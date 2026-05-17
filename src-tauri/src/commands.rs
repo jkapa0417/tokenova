@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Local, NaiveDate, Utc};
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::db::{ConstellationCodexEntry, Db, Session, TokenEvent};
@@ -243,6 +244,135 @@ pub async fn get_gallery(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+// ─────────────────────── Settings / Provider Health ───────────────────────
+
+/// Provider id strings used as the source-of-truth keys for settings.
+const PROVIDER_CLAUDE: &str = "claude_code";
+const PROVIDER_CODEX: &str = "codex_cli";
+const PROVIDER_OPENCODE: &str = "opencode";
+
+fn settings_key_for_path(provider_id: &str) -> String {
+    format!("provider.{}.path", provider_id)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderHealth {
+    pub id: String,
+    pub name: String,
+    pub default_path: String,
+    pub custom_path: Option<String>,
+    pub effective_path: String,
+    /// File or directory exists at the effective path.
+    pub exists: bool,
+    /// True when the kind of node at the path matches what the watcher needs
+    /// (directory for JSONL providers, file for OpenCode's SQLite DB).
+    pub kind_ok: bool,
+    pub last_event_at: Option<DateTime<Utc>>,
+    pub events_today: u64,
+}
+
+fn default_path_for(provider_id: &str) -> String {
+    match provider_id {
+        PROVIDER_CLAUDE => crate::watcher::claude_projects_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default(),
+        PROVIDER_CODEX => crate::watcher::codex_sessions_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default(),
+        PROVIDER_OPENCODE => crate::watcher::opencode::opencode_db_path()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
+fn display_name_for(provider_id: &str) -> &'static str {
+    match provider_id {
+        PROVIDER_CLAUDE => "Claude Code",
+        PROVIDER_CODEX => "Codex CLI",
+        PROVIDER_OPENCODE => "OpenCode",
+        _ => "?",
+    }
+}
+
+fn build_provider_health(db: &Arc<Db>, provider_id: &str) -> Result<ProviderHealth, String> {
+    let key = settings_key_for_path(provider_id);
+    let custom = db.get_setting(&key).map_err(|e| e.to_string())?;
+    let default_path = default_path_for(provider_id);
+    let effective = custom.clone().unwrap_or_else(|| default_path.clone());
+
+    let path = std::path::Path::new(&effective);
+    let exists = path.exists();
+    // JSONL providers expect a directory; OpenCode expects a file.
+    let kind_ok = match provider_id {
+        PROVIDER_CLAUDE | PROVIDER_CODEX => path.is_dir(),
+        PROVIDER_OPENCODE => path.is_file(),
+        _ => exists,
+    };
+
+    let (from, to) = today_range_in_utc();
+    let (last_at, events_today) = db
+        .provider_stats(provider_id, from, to)
+        .map_err(|e| e.to_string())?;
+
+    Ok(ProviderHealth {
+        id: provider_id.to_string(),
+        name: display_name_for(provider_id).to_string(),
+        default_path,
+        custom_path: custom,
+        effective_path: effective,
+        exists,
+        kind_ok,
+        last_event_at: last_at,
+        events_today,
+    })
+}
+
+#[tauri::command]
+pub async fn get_providers_health(
+    db: State<'_, Arc<Db>>,
+) -> Result<Vec<ProviderHealth>, String> {
+    let db = db.inner().clone();
+    tokio::task::spawn_blocking(move || -> Result<Vec<ProviderHealth>, String> {
+        let mut out = Vec::with_capacity(3);
+        for id in [PROVIDER_CLAUDE, PROVIDER_CODEX, PROVIDER_OPENCODE] {
+            out.push(build_provider_health(&db, id)?);
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn set_provider_path(
+    db: State<'_, Arc<Db>>,
+    provider_id: String,
+    path: String,
+) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("empty path — use clear_provider_path instead".to_string());
+    }
+    let db = db.inner().clone();
+    let key = settings_key_for_path(&provider_id);
+    let value = path.trim().to_string();
+    tokio::task::spawn_blocking(move || db.set_setting(&key, &value).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn clear_provider_path(
+    db: State<'_, Arc<Db>>,
+    provider_id: String,
+) -> Result<(), String> {
+    let db = db.inner().clone();
+    let key = settings_key_for_path(&provider_id);
+    tokio::task::spawn_blocking(move || db.clear_setting(&key).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[allow(dead_code)]

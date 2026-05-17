@@ -791,6 +791,75 @@ impl Db {
         Ok(n.max(0) as u32)
     }
 
+    // ---------- Settings ----------
+
+    pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().expect("db poisoned");
+        let v: Option<String> = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = ?1",
+                params![key],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(v.filter(|s| !s.is_empty()))
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        let conn = self.conn.lock().expect("db poisoned");
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at",
+            params![key, value, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn clear_setting(&self, key: &str) -> Result<()> {
+        let conn = self.conn.lock().expect("db poisoned");
+        conn.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
+        Ok(())
+    }
+
+    // ---------- Provider stats ----------
+
+    /// Most recent token event timestamp for the given provider, plus the
+    /// number of events recorded today (local-time day window).
+    pub fn provider_stats(
+        &self,
+        provider: &str,
+        today_from_utc: DateTime<Utc>,
+        today_to_utc: DateTime<Utc>,
+    ) -> Result<(Option<DateTime<Utc>>, u64)> {
+        let conn = self.conn.lock().expect("db poisoned");
+        let last_at: Option<String> = conn
+            .query_row(
+                "SELECT MAX(timestamp) FROM token_events WHERE provider = ?1",
+                params![provider],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten();
+        let last_at = last_at
+            .as_deref()
+            .map(|s| parse_rfc3339(0, s))
+            .transpose()?;
+        let count_today: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM token_events
+             WHERE provider = ?1 AND timestamp >= ?2 AND timestamp < ?3",
+            params![
+                provider,
+                today_from_utc.to_rfc3339(),
+                today_to_utc.to_rfc3339(),
+            ],
+            |row| row.get(0),
+        )?;
+        Ok((last_at, count_today.max(0) as u64))
+    }
+
     // ---------- Achievements ----------
 
     /// Record an achievement key. Returns `true` if newly recorded, `false`
