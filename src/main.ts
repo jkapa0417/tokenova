@@ -36,20 +36,46 @@ function isTabKey(value: string | null | undefined): value is TabKey {
 }
 
 /// Windows users expect to be able to drag the tray popover to a new position
-/// (no native titlebar exists with `decorations: false`). Add Tauri's drag
-/// region attribute to the topbar so click-and-hold there moves the OS window.
-/// Tab buttons inside the topbar still receive their click events because the
-/// drag only kicks in on mousedown over non-interactive area. macOS / Linux
-/// stay anchored to the tray icon, which matches platform convention there.
+/// (no native titlebar exists with `decorations: false`). Wire an explicit
+/// mousedown → startDragging() handler on the topbar.
+///
+/// We don't rely on `data-tauri-drag-region` because in Tauri 2 the attribute
+/// only fires when the exact element under the cursor has it — clicks on the
+/// `.topbar-spacer` or other child wouldn't trigger drag even though the
+/// parent topbar carried the attribute. An explicit handler walks the DOM
+/// itself and starts dragging on any non-interactive descendant.
+///
+/// macOS / Linux stay anchored to the tray icon (platform convention) — the
+/// `isWindows` guard exits early everywhere else.
 function enableWindowsDragRegion(): void {
   const ua = (navigator.userAgent || "").toLowerCase();
   const isWindows =
     ua.includes("windows") ||
     /win/.test((navigator.platform || "").toLowerCase());
   if (!isWindows) return;
-  document.querySelector(".topbar")?.setAttribute("data-tauri-drag-region", "");
-  // Subtle visual hint — empty area in the topbar shows a "move" cursor.
+
+  const topbar = document.querySelector<HTMLElement>(".topbar");
+  if (!topbar) return;
+
   document.body.classList.add("os-windows");
+
+  topbar.addEventListener("mousedown", async (e) => {
+    if (e.button !== 0) return; // left button only
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    // Skip drag if the click landed on an interactive element so tab
+    // navigation + token-pill clicks keep working.
+    if (target.closest("button, input, a, .token-pill")) return;
+    e.preventDefault();
+    try {
+      const { getCurrentWebviewWindow } = await import(
+        "@tauri-apps/api/webviewWindow"
+      );
+      await getCurrentWebviewWindow().startDragging();
+    } catch (err) {
+      console.warn("[topbar] startDragging failed:", err);
+    }
+  });
 }
 
 function readHashTab(): TabKey {
