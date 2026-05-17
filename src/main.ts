@@ -18,6 +18,7 @@ import { activateGallery, closeGalleryOverlay } from "./views/gallery";
 import { activateSettings } from "./views/settings";
 import { activateToday, deactivateToday } from "./views/today";
 import { applyDomI18n, initI18n, subscribeLocale } from "./i18n";
+import { maybeShowOnboarding } from "./onboarding";
 import { startUpdateCheck } from "./updater";
 
 type TabKey = "today" | "codex" | "achievements" | "gallery" | "settings";
@@ -201,6 +202,8 @@ window.addEventListener("DOMContentLoaded", () => {
     void refreshTokenPill();
     setInterval(() => void refreshTokenPill(), TOKEN_PILL_INTERVAL_MS);
     setTimeout(() => void startUpdateCheck(), 3000);
+    // First-launch welcome modal (no-op after dismiss is recorded).
+    maybeShowOnboarding();
 
     // Tray right-click menu items emit `tray-route` with a tab key. Switch to
     // that tab so the user lands directly on the section they picked.

@@ -290,4 +290,22 @@ export const en: Dictionary = {
     subjects: ["Stag", "Bear", "Dragon", "Crane", "Fox", "Tortoise", "Lion", "Wolf", "Swan", "Eagle", "Butterfly", "Serpent", "Horse", "Dolphin", "Tiger"] as string[],
     adjectives: ["Radiant", "Sleeping", "Soaring", "Dancing", "Quiet", "Awakened", "Young", "Old", "Northern", "Southern"] as string[],
   },
+
+  onboarding: {
+    title: "Welcome to Tokenova",
+    subtitle: "Your daily coding becomes a small universe.",
+    where: {
+      macos: "the top-right of the menubar",
+      windows: "the system tray (right side of the taskbar)",
+      linux: "the system tray",
+    },
+    points: {
+      tray: "Click the planet icon in {where} to open the Tokenova window.",
+      stars: "AI coding tokens turn into stars. Sessions over 1M tokens can reveal planets.",
+      archive: "At midnight the day's universe closes and is preserved forever. The next day, a blank canvas opens again.",
+    },
+    language: "Language / 언어",
+    cta: "Get started",
+    footer: "More settings (autostart, provider paths) live in the ⚙️ Settings tab.",
+  },
 };
