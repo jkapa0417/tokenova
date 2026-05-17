@@ -58,6 +58,10 @@ let currentRange: Range = "month";
 let wiredUp = false;
 let lastSummaries: UniverseSummary[] = [];
 let monthOffset = 0;          // 0 = current month, negative = earlier months
+// Tokenova shipped in May 2026 — earlier months would just render as empty
+// calendars with no useful data, so the prev arrow is hard-floored here.
+const APP_EPOCH_YEAR = 2026;
+const APP_EPOCH_MONTH = 4;    // 0-indexed → May
 
 export async function activateGallery(): Promise<void> {
   ensureWired();
@@ -248,6 +252,12 @@ function renderMonthView(
 
   const monthLabel = monthDate.toLocaleString("ko-KR", { year: "numeric", month: "long" });
   const canNext = offset < 0;
+  // App was released in May 2026 — there's no recorded data before that, so
+  // the prev arrow stops there. Anything earlier would just render an empty
+  // calendar with no way for the user to do anything.
+  const atFloor = year < APP_EPOCH_YEAR
+    || (year === APP_EPOCH_YEAR && month <= APP_EPOCH_MONTH);
+  const canPrev = !atFloor;
 
   const cells: string[] = [];
   for (let i = 0; i < firstDayOfWeek; i++) {
@@ -289,7 +299,7 @@ function renderMonthView(
 
   return `
     <div class="month-nav">
-      <button class="month-arrow" id="gallery-month-prev" type="button" aria-label="이전 달">
+      <button class="month-arrow" id="gallery-month-prev" type="button" aria-label="이전 달" ${canPrev ? "" : "disabled"}>
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M9 3L5 7L9 11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
@@ -321,6 +331,11 @@ function wireMonthNav(byDate: Map<string, UniverseSummary>, today: Date) {
     primeCellThumbnails();
   };
   prev?.addEventListener("click", () => {
+    // Don't step past the app epoch — would land on an empty pre-May 2026
+    // calendar with nothing to show.
+    const target = new Date(today.getFullYear(), today.getMonth() + monthOffset - 1, 1);
+    const floor = new Date(APP_EPOCH_YEAR, APP_EPOCH_MONTH, 1);
+    if (target < floor) return;
     monthOffset--;
     repaint();
   });

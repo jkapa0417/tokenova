@@ -189,6 +189,7 @@ export function activateToday(): void {
   });
 
   wireDrawingBar();
+  wireClusterNameEdit();
   attachEscListener();
 
   local.pollTimer = window.setInterval(() => void poll(), POLL_INTERVAL_MS);
@@ -468,6 +469,12 @@ function wireDrawingBar(): void {
   commitBtn?.addEventListener("click", () => void commitCurrent());
 
   input?.addEventListener("keydown", (e) => {
+    // Korean (and other IME-driven) input fires keydown for the Enter key
+    // that ALSO commits an in-progress composition. Skip our handler while
+    // composition is active so the IME finishes naturally and the typed
+    // characters actually land in the input. `e.isComposing` is the safe
+    // signal; some browsers also use keyCode 229.
+    if ((e as KeyboardEvent).isComposing || e.keyCode === 229) return;
     if (e.key === "Enter") {
       e.preventDefault();
       void commitCurrent();
@@ -545,8 +552,33 @@ function showNameRow(): void {
   if ($input) {
     $input.value = "";
     $input.placeholder = autoConstellationName();
-    setTimeout(() => $input.focus(), 30);
+    imeSafeFocus($input);
   }
+}
+
+// Focus an input in a way that's reliable across WebView2 (Windows) and
+// WebKit2GTK (Linux/WSLg). The straight `.focus()` call sometimes leaves the
+// document in a "ghost focus" state where Latin keys work but OS-level IME
+// hotkeys (한/영, Shift+Space) get swallowed before reaching the webview.
+// Wrapping focus in a small timeout + a blur/refocus cycle forces the webview
+// to (re)bind its input-method context to the live element.
+function imeSafeFocus(el: HTMLInputElement | HTMLTextAreaElement): void {
+  setTimeout(() => {
+    el.focus();
+    // One blur+refocus tick to nudge the webview's IM context into rebinding.
+    // No-op for users where focus already worked; helps the cases where it didn't.
+    setTimeout(() => {
+      el.blur();
+      el.focus();
+      if (typeof (el as HTMLInputElement).select === "function") {
+        try {
+          (el as HTMLInputElement).select();
+        } catch {
+          // ignore — some elements (range/file inputs) don't support select()
+        }
+      }
+    }, 20);
+  }, 100);
 }
 
 function enterNamingMode(): void {
@@ -702,8 +734,18 @@ function updatePlanetPins() {
   const wrapW = rect.width || 1;
   const wrapH = rect.height || 1;
   const spriteHalfPx = PIN_SPRITE_HALF_PX * pinScale;
+  // Today's HUD ("today-hud") sits on top of the universe-wrap with z-index
+  // 5 — anything we render at the bottom of the overlay falls behind it.
+  // Push the bottom cull boundary above the HUD's top so pins never hide
+  // under the readout.
+  const hudEl = document.querySelector(".today-hud") as HTMLElement | null;
+  const hudRect = hudEl?.getBoundingClientRect();
+  const hudOverlapPx = hudRect
+    ? Math.max(0, rect.bottom - hudRect.top)
+    : 0;
   const marginX = spriteHalfPx / wrapW;
-  const marginY = spriteHalfPx / wrapH;
+  const marginTopY = spriteHalfPx / wrapH;
+  const marginBottomY = (spriteHalfPx + hudOverlapPx) / wrapH;
 
   layer.querySelectorAll<HTMLElement>(".planet-pin").forEach((el) => {
     const px = parseFloat(el.dataset.px ?? "0");
@@ -713,8 +755,8 @@ function updatePlanetPins() {
     if (
       nx < marginX ||
       nx > 1 - marginX ||
-      ny < marginY ||
-      ny > 1 - marginY
+      ny < marginTopY ||
+      ny > 1 - marginBottomY
     ) {
       el.classList.add("off-screen");
       return;
@@ -733,9 +775,93 @@ function clamp(min: number, max: number, v: number): number {
 function paintClusterTag(payload: UniversePayload) {
   const $name = document.getElementById("cluster-name");
   const $sub = document.getElementById("cluster-sub");
-  if ($name) $name.textContent = payload.universe.cluster_name ?? payload.universe.date;
+  // Skip overwriting during an active rename so the user's in-progress input
+  // isn't blown away by the next 3-second poll.
+  if ($name && !$name.classList.contains("editing")) {
+    $name.textContent = payload.universe.cluster_name ?? payload.universe.date;
+  }
   if ($sub) {
     const layout = payload.universe.layout_shape ?? "—";
     $sub.textContent = `SEED · ${payload.universe.seed & 0xffff} · ${layout.toUpperCase()}`;
   }
+}
+
+// Inline-edit the cluster name on click. Enter / blur commits, Escape reverts.
+// IME composition is respected so Korean (and other) input works.
+function wireClusterNameEdit(): void {
+  const $name = document.getElementById("cluster-name");
+  if (!$name) return;
+  $name.title = "클릭해서 이름 수정";
+  $name.addEventListener("click", () => {
+    if ($name.classList.contains("editing")) return;
+    const current = ($name.textContent ?? "").trim();
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "th-name-input";
+    input.value = current;
+    input.maxLength = 40;
+    input.lang = "ko";
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.setAttribute("autocorrect", "off");
+    input.setAttribute("autocapitalize", "off");
+    input.placeholder = "은하 이름";
+
+    $name.classList.add("editing");
+    $name.textContent = "";
+    $name.appendChild(input);
+    // NB: don't use imeSafeFocus here. Its blur/refocus rebinding cycle would
+    // trigger our own blur listener below (which commits + destroys the
+    // input), so the field would vanish the instant we open it. A plain
+    // delayed focus is enough because the user just clicked into the app —
+    // the webview already has focus and the IM context is live.
+    let openingFocus = true;
+    setTimeout(() => {
+      input.focus();
+      input.select();
+      // Tiny grace period after focus before we let blur commit, so any
+      // focus-shuffle from the browser during element insertion doesn't
+      // immediately fire the commit path.
+      setTimeout(() => {
+        openingFocus = false;
+      }, 50);
+    }, 60);
+
+    let committing = false;
+    const finish = async (commit: boolean) => {
+      if (committing) return;
+      committing = true;
+      if (!commit) {
+        $name.classList.remove("editing");
+        $name.textContent = current;
+        return;
+      }
+      try {
+        const newName = await invoke<string>("rename_current_galaxy", {
+          name: input.value,
+        });
+        $name.classList.remove("editing");
+        $name.textContent = newName;
+      } catch (e) {
+        console.error("rename_current_galaxy:", e);
+        $name.classList.remove("editing");
+        $name.textContent = current;
+      }
+    };
+
+    input.addEventListener("keydown", (e) => {
+      if ((e as KeyboardEvent).isComposing || e.keyCode === 229) return;
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void finish(true);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        void finish(false);
+      }
+    });
+    input.addEventListener("blur", () => {
+      if (openingFocus) return;
+      void finish(true);
+    });
+  });
 }

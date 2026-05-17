@@ -482,6 +482,23 @@ button {
   color: var(--gold);
   letter-spacing: 0.12em;
   white-space: nowrap;
+  cursor: text;
+  border-radius: 3px;
+  padding: 0 2px;
+  transition: background 120ms;
+}
+.th-name:hover { background: rgba(255, 255, 255, 0.05); }
+.th-name.editing { background: rgba(0, 0, 0, 0.35); padding: 0; }
+.th-name-input {
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--gold);
+  font: inherit;
+  letter-spacing: 0.12em;
+  padding: 0 2px;
+  width: 14ch;
+  max-width: 220px;
 }
 .th-sub {
   color: var(--fg-3);
@@ -546,7 +563,13 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Establishes a stable stacking layer so a hovered pin can rise above its
+     siblings — without this baseline, the tooltip's internal `z-index: 10`
+     only helps within the same .planet-pin and gets covered by later-DOM
+     pins that share the default stack level. */
+  z-index: 1;
 }
+.planet-pin:hover { z-index: 50; }
 .planet-pin.off-screen { display: none; }
 
 .planet-pin .pin-svg-wrap {
@@ -2014,10 +2037,14 @@ button {
   z-index: 2;
 }
 .hm-cell.future { background: rgba(255,255,255,0.01); }
-.hm-cell.level-0 { background: rgba(255,255,255,0.04); }
-.hm-cell.level-1 { background: rgba(212,168,87,0.18); }
-.hm-cell.level-2 { background: rgba(212,168,87,0.38); }
-.hm-cell.level-3 { background: rgba(212,168,87,0.62); }
+/* level-0 (활동 없음) stays neutral. level-1 (적음) now reads as clearly
+   gold-tinted vs the empty cell — earlier `0.18` looked nearly identical to
+   the empty rgba(255,255,255,0.04) on the dark backdrop. Levels 2-3 are
+   spaced more evenly across the gold ramp. */
+.hm-cell.level-0 { background: rgba(255, 255, 255, 0.035); }
+.hm-cell.level-1 { background: rgba(232, 200, 158, 0.34); }
+.hm-cell.level-2 { background: rgba(220, 180, 110, 0.58); }
+.hm-cell.level-3 { background: rgba(212, 168, 87, 0.8); }
 .hm-cell.level-4 {
   background: rgba(232,200,158,0.95);
   box-shadow: 0 0 4px rgba(232,200,158,0.4);

@@ -341,6 +341,92 @@ impl Db {
         Ok(())
     }
 
+    // ---------- Dev console helpers (debug builds only) ----------
+    //
+    // Surface destructive resets the dev console needs without exposing them
+    // through production-facing commands. Gated at module level by the
+    // `dev_console` Cargo cfg below — release builds don't compile this.
+
+    #[cfg(debug_assertions)]
+    pub fn dev_delete_planets_for_universe(&self, universe_id: i64) -> Result<usize> {
+        let conn = self.conn.lock().expect("db poisoned");
+        let n = conn.execute(
+            "DELETE FROM planets WHERE universe_id = ?1",
+            params![universe_id],
+        )?;
+        Ok(n)
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn dev_delete_stars_for_universe(&self, universe_id: i64) -> Result<usize> {
+        let conn = self.conn.lock().expect("db poisoned");
+        let n = conn.execute(
+            "DELETE FROM stars WHERE universe_id = ?1",
+            params![universe_id],
+        )?;
+        // Reset the universe's star_count so the engine starts fresh.
+        conn.execute(
+            "UPDATE universes SET star_count = 0 WHERE id = ?1",
+            params![universe_id],
+        )?;
+        Ok(n)
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn dev_delete_constellations_for_universe(&self, universe_id: i64) -> Result<usize> {
+        let conn = self.conn.lock().expect("db poisoned");
+        let n = conn.execute(
+            "DELETE FROM constellations WHERE universe_id = ?1",
+            params![universe_id],
+        )?;
+        Ok(n)
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn dev_clear_codex(&self) -> Result<usize> {
+        let conn = self.conn.lock().expect("db poisoned");
+        Ok(conn.execute("DELETE FROM codex", [])?)
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn dev_clear_bootstrap_sentinel(&self) -> Result<()> {
+        let conn = self.conn.lock().expect("db poisoned");
+        conn.execute(
+            "DELETE FROM watch_state WHERE file_path = ?1",
+            params![BOOTSTRAP_SENTINEL],
+        )?;
+        Ok(())
+    }
+
+    /// Delete every token_event row whose timestamp falls in the given UTC
+    /// range. Used by the dev console's "clear today" wipe.
+    #[cfg(debug_assertions)]
+    pub fn dev_delete_token_events_in_range(
+        &self,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+    ) -> Result<usize> {
+        let conn = self.conn.lock().expect("db poisoned");
+        let n = conn.execute(
+            "DELETE FROM token_events WHERE timestamp >= ?1 AND timestamp < ?2",
+            params![from.to_rfc3339(), to.to_rfc3339()],
+        )?;
+        Ok(n)
+    }
+
+    /// Force-close every open session (ended_at IS NULL) — used together
+    /// with the token wipe so the engine starts fresh on the next event.
+    #[cfg(debug_assertions)]
+    pub fn dev_close_all_open_sessions(&self) -> Result<usize> {
+        let conn = self.conn.lock().expect("db poisoned");
+        let now = Utc::now().to_rfc3339();
+        let n = conn.execute(
+            "UPDATE sessions SET ended_at = ?1 WHERE ended_at IS NULL",
+            params![now],
+        )?;
+        Ok(n)
+    }
+
     // ---------- Universe ----------
 
     pub fn find_universe_by_date(&self, date: NaiveDate) -> Result<Option<Universe>> {
@@ -414,6 +500,15 @@ impl Db {
         conn.execute(
             "UPDATE universes SET galaxy_type = ?1, finalized_at = ?2 WHERE id = ?3",
             params![galaxy.as_str(), finalized_at.to_rfc3339(), universe_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn rename_universe(&self, universe_id: i64, name: &str) -> Result<()> {
+        let conn = self.conn.lock().expect("db poisoned");
+        conn.execute(
+            "UPDATE universes SET cluster_name = ?1 WHERE id = ?2",
+            params![name, universe_id],
         )?;
         Ok(())
     }
