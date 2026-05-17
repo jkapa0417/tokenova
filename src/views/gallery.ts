@@ -9,7 +9,8 @@ import { PLANET_BY_ID, RARITY_LABEL, TIER_PROBABILITY } from "../universe/catalo
 import { makeView } from "../universe/camera";
 import { buildEffects } from "../universe/effects";
 import { UniverseInteraction } from "../universe/interaction";
-import { planetSvg } from "../universe/planet-svg";
+import type { PlanetCanvasHandle } from "../universe/planet-canvas";
+import { disposeAllPlanetOrbs, mountAllPlanetOrbs } from "../universe/planet-mount";
 import { UniverseRenderer } from "../universe/renderer";
 import {
   DISPLAY_H,
@@ -760,9 +761,12 @@ function updateGalZoomTag(view: ReturnType<typeof makeView>) {
   if ($z) $z.textContent = `${view.zoom.toFixed(1)}x`;
 }
 
+let galPinCanvases: PlanetCanvasHandle[] = [];
+
 function rebuildGalPlanetPins(planets: Planet[]) {
   const layer = document.getElementById("gal-planet-overlay");
   if (!layer) return;
+  disposeAllPlanetOrbs(galPinCanvases);
   layer.innerHTML = planets.map(renderPinHtml).join("");
   layer.querySelectorAll<HTMLElement>(".planet-pin").forEach((el) => {
     el.addEventListener("click", (e) => {
@@ -772,6 +776,7 @@ function rebuildGalPlanetPins(planets: Planet[]) {
       if (planet) openCodexForPlanet(planet);
     });
   });
+  galPinCanvases = mountAllPlanetOrbs(layer);
 }
 
 // Past-universe planet click → jump to that planet's codex card (the user
@@ -793,7 +798,9 @@ function openCodexForPlanet(planet: Planet) {
 
 function renderPinHtml(p: Planet): string {
   const spec = PLANET_BY_ID[p.planet_type];
-  const orb = spec ? planetSvg(spec, 26) : "";
+  const orb = spec
+    ? `<div data-planet-orb data-orb-id="${spec.id}" data-orb-size="26"></div>`
+    : "";
   const tierLabel = RARITY_LABEL[p.rarity];
   const prob = TIER_PROBABILITY[p.rarity];
   const displayName = spec?.name ?? p.planet_type;
@@ -860,6 +867,7 @@ function updateGalPlanetPins(view: ReturnType<typeof makeView>) {
 export function closeGalleryOverlay() {
   openOverlayHandle?.renderer.stop();
   openOverlayHandle = null;
+  disposeAllPlanetOrbs(galPinCanvases);
   const overlay = document.getElementById("gal-overlay");
   const frame = document.getElementById("gal-overlay-frame");
   if (overlay) overlay.hidden = true;

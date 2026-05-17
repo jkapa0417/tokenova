@@ -9,7 +9,8 @@ import { PLANET_BY_ID, RARITY_LABEL, TIER_PROBABILITY } from "../universe/catalo
 import { makeView, type View } from "../universe/camera";
 import { buildEffects, type EffectLayers, type Mood } from "../universe/effects";
 import { UniverseInteraction } from "../universe/interaction";
-import { planetSvg } from "../universe/planet-svg";
+import type { PlanetCanvasHandle } from "../universe/planet-canvas";
+import { disposeAllPlanetOrbs, mountAllPlanetOrbs } from "../universe/planet-mount";
 import { UniverseRenderer, type Scene } from "../universe/renderer";
 import {
   mountSleepingUniverse,
@@ -207,6 +208,7 @@ export function deactivateToday(): void {
   state.renderer?.stop();
   sleepingHandle?.dispose();
   sleepingHandle = null;
+  disposeAllPlanetOrbs(pinCanvases);
   detachEscListener();
 }
 
@@ -531,9 +533,12 @@ const PIN_BASE_PX = 26;
 const PIN_MIN_PX = 14;
 const PIN_MAX_PX = 96;
 
+let pinCanvases: PlanetCanvasHandle[] = [];
+
 function rebuildPlanetPins(planets: Planet[]) {
   const layer = document.getElementById("planet-overlay");
   if (!layer) return;
+  disposeAllPlanetOrbs(pinCanvases);
   layer.innerHTML = planets.map(renderPinHtml).join("");
   layer.querySelectorAll<HTMLElement>(".planet-pin").forEach((el) => {
     el.addEventListener("click", (e) => {
@@ -543,12 +548,15 @@ function rebuildPlanetPins(planets: Planet[]) {
       if (planet) void openDiscoveryOverlay([planet]);
     });
   });
+  pinCanvases = mountAllPlanetOrbs(layer);
   updatePlanetPins();
 }
 
 function renderPinHtml(p: Planet): string {
   const spec = PLANET_BY_ID[p.planet_type];
-  const orb = spec ? planetSvg(spec, 26) : "";
+  const orb = spec
+    ? `<div data-planet-orb data-orb-id="${spec.id}" data-orb-size="26"></div>`
+    : "";
   const isNew = !p.acknowledged_at;
   const tierLabel = RARITY_LABEL[p.rarity];
   const prob = TIER_PROBABILITY[p.rarity];
