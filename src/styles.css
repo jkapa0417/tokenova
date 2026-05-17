@@ -2725,3 +2725,89 @@ button {
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
+
+/* ───── Auto-update banner ─────
+   Fixed footer that appears only when a newer release is detected.
+   Sits above all view content with a translucent panel + 2 actions. */
+.update-banner {
+  position: fixed;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0.5px solid var(--line-2);
+  border-radius: 8px;
+  background: rgba(20, 18, 14, 0.92);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  font-size: 11px;
+  color: var(--fg-0);
+}
+.update-banner-msg { flex: 1; letter-spacing: 0.04em; }
+.update-banner-msg b { color: var(--gold); font-weight: 600; }
+.update-banner-btn {
+  border: 0.5px solid var(--line-2);
+  background: transparent;
+  color: var(--fg-1);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.update-banner-btn:hover { background: rgba(255, 255, 255, 0.06); }
+.update-banner-btn.primary {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.update-banner-btn.primary:hover {
+  background: rgba(212, 168, 87, 0.12);
+}
+.update-banner-btn:disabled { opacity: 0.5; cursor: progress; }
+
+/* ───── Settings → About row ───── */
+.settings-about { margin-top: 8px; }
+.settings-about-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 0.5px solid var(--line-2);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--fg-1);
+  background: rgba(255, 255, 255, 0.02);
+}
+.settings-about-row + .settings-about-row { margin-top: 6px; }
+.settings-about-row[hidden] { display: none; }
+.settings-about-label {
+  color: var(--fg-3);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-size: 9px;
+  min-width: 36px;
+}
+.settings-about-value { flex: 1; color: var(--gold); letter-spacing: 0.06em; }
+.settings-update-btn {
+  border: 0.5px solid var(--gold);
+  background: transparent;
+  color: var(--gold);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  transition: background 120ms;
+}
+.settings-update-btn:hover { background: rgba(212, 168, 87, 0.12); }
+.settings-update-btn:disabled { opacity: 0.5; cursor: progress; }
+#settings-update-status {
+  color: var(--fg-2);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}

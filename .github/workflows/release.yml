@@ -63,6 +63,11 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signing keys for the auto-updater. Without these, the updater
+          # plugin's signature verification rejects every release and clients
+          # silently stay on the old version.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Tokenova ${{ github.ref_name }}"
@@ -75,6 +80,11 @@ jobs:
             - Linux: `.AppImage` / `.deb`
 
             See [README](https://github.com/${{ github.repository }}/blob/main/README.md) for changelog and notes.
-          releaseDraft: true
+          # Draft = false so `releases/latest/download/latest.json` resolves —
+          # GitHub's "latest" alias only points at published, non-draft releases.
+          releaseDraft: false
           prerelease: false
+          # Generates and uploads `latest.json` alongside the platform installers.
+          # The endpoint in tauri.conf.json points at this file.
+          includeUpdaterJson: true
           args: ${{ matrix.args }}

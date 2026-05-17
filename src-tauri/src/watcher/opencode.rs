@@ -27,13 +27,38 @@ pub const PROVIDER: &str = "opencode";
 const POLL_INTERVAL_SECS: u64 = 5;
 const STATE_KEY: &str = "opencode:last_time_updated";
 
+/// Resolve the OpenCode SQLite database path with full cross-platform support.
+///
+/// Resolution order (matches `opencode`'s own conventions):
+///   1. `$OPENCODE_DATA_DIR/opencode.db` — explicit override (any OS).
+///   2. macOS + Linux: `~/.local/share/opencode/opencode.db` (XDG_DATA_HOME).
+///      Note: macOS uses the XDG path here, NOT the Apple
+///      `~/Library/Application Support` convention — that mismatch is on
+///      `opencode` itself, but we mirror it so the default works out of the box.
+///   3. Windows: `%APPDATA%\opencode\opencode.db` (Roaming AppData).
 pub fn opencode_db_path() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow!("no home directory"))?;
-    Ok(home
-        .join(".local")
-        .join("share")
-        .join("opencode")
-        .join("opencode.db"))
+    if let Some(custom) = std::env::var_os("OPENCODE_DATA_DIR") {
+        return Ok(PathBuf::from(custom).join("opencode.db"));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // Prefer the real APPDATA env (Roaming). Fall back to dirs::data_dir
+        // which on Windows also resolves to Roaming AppData.
+        let base = std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .or_else(dirs::data_dir)
+            .ok_or_else(|| anyhow!("no APPDATA / data_dir on Windows"))?;
+        return Ok(base.join("opencode").join("opencode.db"));
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let home = dirs::home_dir().ok_or_else(|| anyhow!("no home directory"))?;
+        Ok(home
+            .join(".local")
+            .join("share")
+            .join("opencode")
+            .join("opencode.db"))
+    }
 }
 
 pub fn spawn_opencode_watcher(
