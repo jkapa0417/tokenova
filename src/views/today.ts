@@ -6,7 +6,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { PLANET_BY_ID, RARITY_LABEL, TIER_PROBABILITY } from "../universe/catalog";
-import { makeView, type View } from "../universe/camera";
+import { makeView, worldToScreen, type View } from "../universe/camera";
+import { DISPLAY_H as CANVAS_H, DISPLAY_W as CANVAS_W } from "../universe/types";
 import { buildEffects, type EffectLayers, type Mood } from "../universe/effects";
 import { UniverseInteraction } from "../universe/interaction";
 import type { PlanetCanvasHandle } from "../universe/planet-canvas";
@@ -18,8 +19,6 @@ import {
 } from "../universe/sleeping-universe";
 import { recordStarsEncountered } from "../universe/star-discovery";
 import {
-  UNIVERSE_H,
-  UNIVERSE_W,
   type Constellation,
   type GalaxyType,
   type Nebula,
@@ -715,8 +714,6 @@ function updatePlanetPins() {
   const layer = document.getElementById("planet-overlay");
   if (!layer) return;
   const view = state.view;
-  const visibleW = UNIVERSE_W / view.zoom;
-  const visibleH = UNIVERSE_H / view.zoom;
   // Visual size grows from 26 (zoom 1) to 96 (zoom 8); PIN_BASE_PX (96) is
   // the pin's CSS box, so pinScale = visualSize / 96 sits in 0.27..1.0.
   const sizePx = clamp(
@@ -725,41 +722,47 @@ function updatePlanetPins() {
     26 + (view.zoom - 1) * 10,
   );
   const pinScale = sizePx / PIN_BASE_PX;
-
-  const rect = layer.getBoundingClientRect();
-  const wrapW = rect.width || 1;
-  const wrapH = rect.height || 1;
   const spriteHalfPx = PIN_SPRITE_HALF_PX * pinScale;
-  // Today's HUD ("today-hud") sits on top of the universe-wrap with z-index
-  // 5 — anything we render at the bottom of the overlay falls behind it.
-  // Push the bottom cull boundary above the HUD's top so pins never hide
-  // under the readout.
+
+  // Position pins in canvas-space pixels (same coord system the renderer
+  // draws stars into) rather than overlay percentages. The canvas itself
+  // is pinned inline to CANVAS_W × CANVAS_H CSS pixels at the wrap's
+  // top-left (see UniverseRenderer ctor), while .planet-overlay extends to
+  // the full wrap with `inset: 0`. Using percentages of the overlay made
+  // off-centre planets drift as the wrap's height (≈ window height − HUD)
+  // differed from CANVAS_H, especially during zoom where the drift scales
+  // with view position.
+  //
+  // Pixel positioning via worldToScreen guarantees pin and underlying star
+  // share the exact same screen coordinate at every zoom level.
+  const rect = layer.getBoundingClientRect();
+  const overlayH = rect.height || CANVAS_H;
   const hudEl = document.querySelector(".today-hud") as HTMLElement | null;
   const hudRect = hudEl?.getBoundingClientRect();
   const hudOverlapPx = hudRect
     ? Math.max(0, rect.bottom - hudRect.top)
     : 0;
-  const marginX = spriteHalfPx / wrapW;
-  const marginTopY = spriteHalfPx / wrapH;
-  const marginBottomY = (spriteHalfPx + hudOverlapPx) / wrapH;
+  // Bottom cull: whichever is tighter — canvas bottom edge (CANVAS_H) or
+  // the visible region above the HUD readout. Pins beyond either get hidden
+  // so they don't poke into the HUD or hang off the canvas.
+  const cullBottom = Math.min(CANVAS_H, overlayH - hudOverlapPx);
 
   layer.querySelectorAll<HTMLElement>(".planet-pin").forEach((el) => {
     const px = parseFloat(el.dataset.px ?? "0");
     const py = parseFloat(el.dataset.py ?? "0");
-    const nx = (px - view.x) / visibleW;
-    const ny = (py - view.y) / visibleH;
+    const screen = worldToScreen(view, px, py);
     if (
-      nx < marginX ||
-      nx > 1 - marginX ||
-      ny < marginTopY ||
-      ny > 1 - marginBottomY
+      screen.x < spriteHalfPx ||
+      screen.x > CANVAS_W - spriteHalfPx ||
+      screen.y < spriteHalfPx ||
+      screen.y > cullBottom - spriteHalfPx
     ) {
       el.classList.add("off-screen");
       return;
     }
     el.classList.remove("off-screen");
-    el.style.left = `${nx * 100}%`;
-    el.style.top = `${ny * 100}%`;
+    el.style.left = `${screen.x}px`;
+    el.style.top = `${screen.y}px`;
     el.style.setProperty("--pin-scale", pinScale.toFixed(3));
   });
 }
