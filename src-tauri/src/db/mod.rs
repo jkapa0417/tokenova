@@ -15,6 +15,11 @@ use crate::engine::types::{
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 const SCHEMA_VERSION: i64 = 2;
 
+/// Sentinel `watch_state.file_path` used to mark the one-time "skip
+/// historical tokens" baseline as done. The leading `__` keeps it sorted
+/// away from real file paths.
+const BOOTSTRAP_SENTINEL: &str = "__tokenova_bootstrap_v1__";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenEvent {
     pub id: Option<i64>,
@@ -34,6 +39,35 @@ impl TokenEvent {
     pub fn total(&self) -> u64 {
         self.input_tokens + self.output_tokens + self.cache_read + self.cache_write
     }
+}
+
+/// Internal intermediate — `list_constellation_codex` returns the public
+/// `ConstellationCodexEntry` instead.
+struct ConstellationCodexRow {
+    id: i64,
+    universe_id: i64,
+    name: String,
+    color: String,
+    star_ids: Vec<i64>,
+    created_at: DateTime<Utc>,
+    universe_date: String,
+    cluster_name: Option<String>,
+    seed: i64,
+}
+
+/// Constellation codex row sent to the frontend. World-space `stars` are
+/// normalized client-side to fit the thumbnail.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConstellationCodexEntry {
+    pub id: i64,
+    pub universe_id: i64,
+    pub name: String,
+    pub color: String,
+    pub created_at: DateTime<Utc>,
+    pub universe_date: String,
+    pub cluster_name: Option<String>,
+    pub seed: i64,
+    pub stars: Vec<(f32, f32)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,6 +270,48 @@ impl Db {
              VALUES (?1, ?2, ?3)
              ON CONFLICT(file_path) DO UPDATE SET byte_offset = excluded.byte_offset, updated_at = excluded.updated_at",
             params![file_path, offset as i64, now],
+        )?;
+        Ok(())
+    }
+
+    /// Has this install completed the one-time "skip historical tokens" baseline?
+    /// Stored as a sentinel row in `watch_state`. Stable across upgrades; only
+    /// resets if the user wipes the app's data directory.
+    ///
+    /// Migration safety: pre-existing installs that predate the sentinel are
+    /// treated as bootstrapped if `watch_state` already has any real entries
+    /// (i.e. the watcher has run at least once). Their saved offsets are
+    /// correct already — we just need to suppress the new skip-to-end path.
+    pub fn is_bootstrapped(&self) -> Result<bool> {
+        let conn = self.conn.lock().expect("db poisoned");
+        let has_sentinel: Option<i64> = conn
+            .query_row(
+                "SELECT byte_offset FROM watch_state WHERE file_path = ?1",
+                params![BOOTSTRAP_SENTINEL],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if has_sentinel.is_some() {
+            return Ok(true);
+        }
+        let other_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM watch_state WHERE file_path != ?1",
+            params![BOOTSTRAP_SENTINEL],
+            |row| row.get(0),
+        )?;
+        Ok(other_count > 0)
+    }
+
+    /// Record that the first-run baseline finished so subsequent launches
+    /// resume normal incremental ingestion.
+    pub fn mark_bootstrapped(&self) -> Result<()> {
+        let conn = self.conn.lock().expect("db poisoned");
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO watch_state (file_path, byte_offset, updated_at)
+             VALUES (?1, 1, ?2)
+             ON CONFLICT(file_path) DO NOTHING",
+            params![BOOTSTRAP_SENTINEL, now],
         )?;
         Ok(())
     }
@@ -562,6 +638,93 @@ impl Db {
         )?;
         let rows = stmt.query_map(params![universe_id], row_to_constellation)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Codex roll-up: every registered constellation paired with the
+    /// universe metadata + resolved star positions needed to draw the card
+    /// thumbnail. Returns newest-first so the most recent shows up on top.
+    pub fn list_constellation_codex(&self) -> Result<Vec<ConstellationCodexEntry>> {
+        use std::collections::HashMap;
+        // 1) Pull every constellation row plus its universe metadata in a
+        //    single locked transaction, then drop the connection lock. We
+        //    can't keep it held while calling `list_stars` below because
+        //    that helper also locks `self.conn` and `std::sync::Mutex` is
+        //    not reentrant — locking again on the same thread deadlocks.
+        let raw: Vec<ConstellationCodexRow> = {
+            let conn = self.conn.lock().expect("db poisoned");
+            let mut stmt = conn.prepare(
+                "SELECT c.id, c.universe_id, c.name, c.color, c.star_ids, c.created_at,
+                        u.date, u.cluster_name, u.seed
+                 FROM constellations c
+                 JOIN universes u ON u.id = c.universe_id
+                 ORDER BY c.created_at DESC, c.id DESC",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                let id: i64 = row.get(0)?;
+                let universe_id: i64 = row.get(1)?;
+                let name: String = row.get(2)?;
+                let color: String = row.get(3)?;
+                let star_ids_raw: String = row.get(4)?;
+                let star_ids: Vec<i64> = serde_json::from_str(&star_ids_raw).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        4,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?;
+                let created_raw: String = row.get(5)?;
+                let created_at = parse_rfc3339(5, &created_raw)?;
+                let universe_date: String = row.get(6)?;
+                let cluster_name: Option<String> = row.get(7)?;
+                let seed: i64 = row.get(8)?;
+                Ok(ConstellationCodexRow {
+                    id,
+                    universe_id,
+                    name,
+                    color,
+                    star_ids,
+                    created_at,
+                    universe_date,
+                    cluster_name,
+                    seed,
+                })
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+
+        // 2) Resolve star ids → world-space (x, y), batched by universe so
+        //    each universe's full star list loads at most once.
+        let mut by_universe: HashMap<i64, Vec<Star>> = HashMap::new();
+        let mut out: Vec<ConstellationCodexEntry> = Vec::with_capacity(raw.len());
+        for r in raw {
+            let stars_for = by_universe
+                .entry(r.universe_id)
+                .or_insert_with(|| self.list_stars(r.universe_id).unwrap_or_default());
+            let mut pts: Vec<(f32, f32)> = Vec::with_capacity(r.star_ids.len());
+            for sid in &r.star_ids {
+                if let Some(star) = stars_for.iter().find(|s| s.id == *sid) {
+                    pts.push((star.position_x, star.position_y));
+                }
+            }
+            out.push(ConstellationCodexEntry {
+                id: r.id,
+                universe_id: r.universe_id,
+                name: r.name,
+                color: r.color,
+                created_at: r.created_at,
+                universe_date: r.universe_date,
+                cluster_name: r.cluster_name,
+                seed: r.seed,
+                stars: pts,
+            });
+        }
+        Ok(out)
+    }
+
+    pub fn delete_constellation(&self, id: i64) -> Result<usize> {
+        let conn = self.conn.lock().expect("db poisoned");
+        let n = conn.execute("DELETE FROM constellations WHERE id = ?1", params![id])?;
+        Ok(n)
     }
 
     // ---------- Codex ----------

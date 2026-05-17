@@ -5,7 +5,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Duration, Local, NaiveDate, Utc};
 use tauri::State;
 
-use crate::db::{Db, Session, TokenEvent};
+use crate::db::{ConstellationCodexEntry, Db, Session, TokenEvent};
 use crate::engine::achievements::{self as ach, AchievementCard};
 use crate::engine::codex::{self as codex_view, CodexPayload};
 use crate::engine::types::{
@@ -90,6 +90,30 @@ pub async fn get_achievements(db: State<'_, Arc<Db>>) -> Result<Vec<AchievementC
     tokio::task::spawn_blocking(move || ach::build_payload(&db).map_err(|e| e.to_string()))
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn list_constellation_codex(
+    db: State<'_, Arc<Db>>,
+) -> Result<Vec<ConstellationCodexEntry>, String> {
+    let db = db.inner().clone();
+    tokio::task::spawn_blocking(move || db.list_constellation_codex().map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn delete_constellation(
+    db: State<'_, Arc<Db>>,
+    constellation_id: i64,
+) -> Result<usize, String> {
+    let db = db.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        db.delete_constellation(constellation_id)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

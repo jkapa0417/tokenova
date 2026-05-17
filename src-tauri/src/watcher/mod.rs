@@ -42,6 +42,7 @@ pub fn codex_sessions_dir() -> Result<PathBuf> {
 pub fn spawn_claude_code_watcher(
     db: Arc<Db>,
     events_tx: broadcast::Sender<TokenEvent>,
+    first_run: bool,
 ) -> Result<WatcherHandle> {
     spawn_provider_watcher(
         "claude_code",
@@ -49,6 +50,7 @@ pub fn spawn_claude_code_watcher(
         claude_code::parse_line,
         db,
         events_tx,
+        first_run,
     )
 }
 
@@ -56,6 +58,7 @@ pub fn spawn_claude_code_watcher(
 pub fn spawn_codex_cli_watcher(
     db: Arc<Db>,
     events_tx: broadcast::Sender<TokenEvent>,
+    first_run: bool,
 ) -> Result<WatcherHandle> {
     spawn_provider_watcher(
         "codex_cli",
@@ -63,6 +66,7 @@ pub fn spawn_codex_cli_watcher(
         codex_cli::parse_line,
         db,
         events_tx,
+        first_run,
     )
 }
 
@@ -72,6 +76,7 @@ pub fn spawn_provider_watcher(
     parser: LineParser,
     db: Arc<Db>,
     events_tx: broadcast::Sender<TokenEvent>,
+    first_run: bool,
 ) -> Result<WatcherHandle> {
     std::fs::create_dir_all(&dir).with_context(|| format!("[{name}] failed to ensure {dir:?}"))?;
 
@@ -83,12 +88,24 @@ pub fn spawn_provider_watcher(
         .watch(&dir, RecursiveMode::Recursive)
         .with_context(|| format!("[{name}] failed to watch {dir:?}"))?;
 
-    // Bootstrap: enumerate existing files and tail from saved offsets.
+    // Bootstrap.
+    // - First run ever: skip the entire existing history. We record each
+    //   existing JSONL's current size as its watch offset so only lines
+    //   written *after* the user installed Tokenova ever produce events.
+    //   This is what makes a fresh install start at 0 tokens instead of
+    //   ingesting the user's whole prior Claude / Codex history.
+    // - Subsequent runs: resume from saved offsets like before.
     let initial_files = enumerate_jsonl(&dir);
     let db_init = db.clone();
     let tx_init = events_tx.clone();
     tauri::async_runtime::spawn(async move {
         for path in initial_files {
+            if first_run {
+                if let Err(e) = baseline_file_to_end(&db_init, &path) {
+                    eprintln!("[{name}] baseline {path:?} failed: {e:#}");
+                }
+                continue;
+            }
             if let Err(e) = process_file(&db_init, &tx_init, &path, parser).await {
                 eprintln!("[{name}] bootstrap {path:?} failed: {e:#}");
             }
@@ -196,6 +213,21 @@ async fn process_file(
     }
 
     db.set_watch_offset(&path_str, from + consumed as u64)?;
+    Ok(())
+}
+
+/// First-run helper: record this file's current size as its watch offset so
+/// the existing history is treated as already-consumed. No parsing, no events.
+fn baseline_file_to_end(db: &Db, path: &Path) -> Result<()> {
+    let path_str = path.to_string_lossy().to_string();
+    let metadata = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(_) => return Ok(()),
+    };
+    if !metadata.is_file() {
+        return Ok(());
+    }
+    db.set_watch_offset(&path_str, metadata.len())?;
     Ok(())
 }
 

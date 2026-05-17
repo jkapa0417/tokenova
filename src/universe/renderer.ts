@@ -1,35 +1,48 @@
 // Canvas2D renderer for the universe.
-// Draw order (bottom → top): background → nebulae → constellation lines →
-// stars → hover indicator → planets.
+// Draw order (bottom → top):
+//   background → mood tint → bg parallax stars → cosmic dust → nebulae →
+//   shooting stars → constellation lines → stars (with halo, spike, hover) →
+// Planets are NOT drawn on the canvas — they live as DOM `.planet-pin`
+// overlays managed by today.ts so they can reuse the procedural SVG art.
+//
+// This renderer owns a continuous rAF loop so twinkle / dust drift / shooting
+// stars stay alive without poke-the-clock calls. Scene mutation just sets the
+// dirty flag — the next animation frame picks it up.
 
 import { WORLD_TO_SCREEN_SCALE, worldToScreen, type View } from "./camera";
-import { mulberry32 } from "./rng";
+import {
+  maybeSpawnShootingStar,
+  stepDust,
+  type EffectLayers,
+} from "./effects";
 import {
   DISPLAY_H,
   DISPLAY_W,
   type Constellation,
   type Nebula,
-  type Planet,
   type Star,
 } from "./types";
 
 export interface Scene {
   stars: Star[];
-  planets: Planet[];
   nebulae: Nebula[];
   constellations: Constellation[];
   /** Star ids currently included in the in-progress constellation. */
   currentConstellation: { starIds: number[] } | null;
   hoveredStarId: number | null;
+  /** Effect layers (parallax bg, dust, shooting stars, mood) for this universe. */
+  effects: EffectLayers | null;
 }
 
 export class UniverseRenderer {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly dpr: number;
-  private needsRender = false;
   private starById = new Map<number, Star>();
-  private cachedScene: Scene | null = null;
-  private cachedView: View | null = null;
+  private scene: Scene | null = null;
+  private view: View | null = null;
+  private rafId = 0;
+  private running = false;
+  private startTimeMs = 0;
 
   constructor(public canvas: HTMLCanvasElement) {
     this.dpr = window.devicePixelRatio || 1;
@@ -40,33 +53,62 @@ export class UniverseRenderer {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("2d context unavailable");
     this.ctx = ctx;
-    this.ctx.scale(this.dpr, this.dpr);
+    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
   }
 
-  /** Schedule a re-render on the next animation frame; idempotent within a frame. */
+  /** Update scene + view and ensure the rAF loop is running. */
   request(view: View, scene: Scene): void {
-    this.cachedView = view;
-    this.cachedScene = scene;
+    this.view = view;
+    this.scene = scene;
     this.starById.clear();
     for (const s of scene.stars) this.starById.set(s.id, s);
-    if (this.needsRender) return;
-    this.needsRender = true;
-    requestAnimationFrame(() => {
-      this.needsRender = false;
-      if (this.cachedScene && this.cachedView) {
-        this.render(this.cachedView, this.cachedScene);
-      }
-    });
+    this.start();
   }
 
-  private render(view: View, scene: Scene): void {
+  /** Stop the rAF loop. Called when Today view deactivates. */
+  stop(): void {
+    this.running = false;
+    if (this.rafId) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = 0;
+    }
+  }
+
+  private start(): void {
+    if (this.running) return;
+    this.running = true;
+    this.startTimeMs = performance.now();
+    const tick = () => {
+      if (!this.running) return;
+      const now = performance.now();
+      if (this.scene && this.view) {
+        this.render(this.view, this.scene, (now - this.startTimeMs) / 1000);
+      }
+      this.rafId = requestAnimationFrame(tick);
+    };
+    this.rafId = requestAnimationFrame(tick);
+  }
+
+  private render(view: View, scene: Scene, t: number): void {
     const { ctx } = this;
 
     // 1. Background.
     ctx.fillStyle = "#0a0a14";
     ctx.fillRect(0, 0, DISPLAY_W, DISPLAY_H);
 
-    // 2. Nebulae.
+    // 2. Mood tint — barely-visible color wash so each day feels distinct.
+    if (scene.effects?.mood && scene.effects.mood.tint) {
+      ctx.fillStyle = scene.effects.mood.tint;
+      ctx.fillRect(0, 0, DISPLAY_W, DISPLAY_H);
+    }
+
+    // 3. Background parallax stars (slower drift than foreground).
+    if (scene.effects) this.drawBgStars(view, scene.effects, t);
+
+    // 4. Cosmic dust drift.
+    if (scene.effects) this.drawDust(view, scene.effects);
+
+    // 5. Nebulae.
     for (const n of scene.nebulae) {
       const s = worldToScreen(view, n.position_x, n.position_y);
       const r = n.radius * WORLD_TO_SCREEN_SCALE * view.zoom;
@@ -79,7 +121,10 @@ export class UniverseRenderer {
       ctx.fill();
     }
 
-    // 3. Constellation lines (below the stars they connect).
+    // 6. Shooting stars — spawn occasionally, fade out.
+    if (scene.effects) this.drawShootingStars(scene.effects, t);
+
+    // 7. Constellation lines (below the stars they connect).
     for (const c of scene.constellations) {
       this.drawConstellationLines(view, c.star_ids, mainColorFor(c.color), glowColorFor(c.color));
     }
@@ -92,7 +137,7 @@ export class UniverseRenderer {
       );
     }
 
-    // 4. Stars.
+    // 8. Stars.
     const sizeBoost = Math.max(0.5, Math.sqrt(view.zoom));
     const constellationStarIds = collectConstellationStarIds(
       scene.constellations,
@@ -103,17 +148,57 @@ export class UniverseRenderer {
       const s = worldToScreen(view, star.position_x, star.position_y);
       if (s.x < -20 || s.x > DISPLAY_W + 20 || s.y < -20 || s.y > DISPLAY_H + 20) continue;
       const r = star.radius * sizeBoost;
-      const { color_r: cr, color_g: cg, color_b: cb, opacity: op } = star;
+      const cr = star.color_r;
+      const cg = star.color_g;
+      const cb = star.color_b;
+      // Per-star twinkle: stable phase from id, mild amplitude so the field
+      // breathes rather than strobes.
+      const phase = (star.id * 0.7) % (Math.PI * 2);
+      const speed = 0.25 + ((star.id * 13) % 100) / 125;
+      const twinkle = Math.sin(t * speed + phase) * 0.2 + 0.8;
+      const op = Math.min(1, star.opacity * twinkle);
 
-      // Big-star halo.
       if (star.is_big) {
-        const glow = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, r * 3);
-        glow.addColorStop(0, `rgba(${cr},${cg},${cb},${op * 0.4})`);
+        const isLargest = star.radius > 3.5;
+        const haloR = r * (isLargest ? 4.5 : 3.2);
+        const glow = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, haloR);
+        glow.addColorStop(0, `rgba(${cr},${cg},${cb},${op * 0.55})`);
+        glow.addColorStop(0.35, `rgba(${cr},${cg},${cb},${op * 0.18})`);
         glow.addColorStop(1, "rgba(0,0,0,0)");
         ctx.fillStyle = glow;
         ctx.beginPath();
-        ctx.arc(s.x, s.y, r * 3, 0, Math.PI * 2);
+        ctx.arc(s.x, s.y, haloR, 0, Math.PI * 2);
         ctx.fill();
+
+        // Diffraction spikes — only the very largest stars get a 4-point cross.
+        if (star.radius > 3.6) {
+          const spikeLen = r * 5.5 * (0.85 + twinkle * 0.3);
+          const spikeAlpha = op * 0.7;
+          ctx.lineCap = "round";
+          ctx.lineWidth = 0.7;
+          for (const [dx, dy] of [[1, 0], [0, 1]]) {
+            const grad = ctx.createLinearGradient(
+              s.x - dx * spikeLen, s.y - dy * spikeLen,
+              s.x + dx * spikeLen, s.y + dy * spikeLen,
+            );
+            grad.addColorStop(0, `rgba(${cr},${cg},${cb},0)`);
+            grad.addColorStop(0.5, `rgba(${cr},${cg},${cb},${spikeAlpha})`);
+            grad.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+            ctx.strokeStyle = grad;
+            ctx.beginPath();
+            ctx.moveTo(s.x - dx * spikeLen, s.y - dy * spikeLen);
+            ctx.lineTo(s.x + dx * spikeLen, s.y + dy * spikeLen);
+            ctx.stroke();
+          }
+        }
+
+        // Bright core highlight for the largest stars.
+        if (isLargest) {
+          ctx.fillStyle = `rgba(255,255,255,${Math.min(1, op * 1.1)})`;
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, r * 0.55, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
 
       // Hover ring.
@@ -142,16 +227,89 @@ export class UniverseRenderer {
         ctx.stroke();
       }
     }
+  }
 
-    // 5. Planets (topmost layer).
-    for (const p of scene.planets) {
-      const s = worldToScreen(view, p.position_x, p.position_y);
-      // Procedural radius derived from seed — keep stable per planet.
-      const r = procRadius(p.seed) * WORLD_TO_SCREEN_SCALE * view.zoom;
-      if (s.x < -r * 2 || s.x > DISPLAY_W + r * 2 || s.y < -r * 2 || s.y > DISPLAY_H + r * 2)
-        continue;
-      drawPlanet(ctx, s.x, s.y, r, p);
+  // ─── Effect layer renderers ───
+
+  private drawBgStars(view: View, effects: EffectLayers, t: number): void {
+    const { ctx } = this;
+    // Parallax: bg stars drift at 15% of the camera pan — sense of depth.
+    // We render bg stars directly in display-space (no zoom) and wrap so they
+    // fill the canvas regardless of camera position.
+    const px = -view.x * WORLD_TO_SCREEN_SCALE * 0.15;
+    const py = -view.y * WORLD_TO_SCREEN_SCALE * 0.15;
+    for (const b of effects.bgStars) {
+      const baseX = b.x * WORLD_TO_SCREEN_SCALE + px;
+      const baseY = b.y * WORLD_TO_SCREEN_SCALE + py;
+      const bx = ((baseX % DISPLAY_W) + DISPLAY_W) % DISPLAY_W;
+      const by = ((baseY % DISPLAY_H) + DISPLAY_H) % DISPLAY_H;
+      const tw = Math.sin(t * b.twSpeed + b.twPhase) * 0.3 + 0.7;
+      ctx.fillStyle = `rgba(255,255,255,${b.opacity * tw})`;
+      ctx.beginPath();
+      ctx.arc(bx, by, b.r, 0, Math.PI * 2);
+      ctx.fill();
     }
+  }
+
+  private drawDust(view: View, effects: EffectLayers): void {
+    stepDust(effects.dust);
+    const { ctx } = this;
+    // Dust drifts in world space, parallax 0.3 of camera. Convert to display.
+    for (const d of effects.dust) {
+      const dx = (d.x - view.x * 0.3) * WORLD_TO_SCREEN_SCALE;
+      const dy = (d.y - view.y * 0.3) * WORLD_TO_SCREEN_SCALE;
+      if (dx < -10 || dx > DISPLAY_W + 10 || dy < -10 || dy > DISPLAY_H + 10) continue;
+      ctx.fillStyle = `rgba(200,210,230,${d.opacity})`;
+      ctx.beginPath();
+      ctx.arc(dx, dy, d.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  private drawShootingStars(effects: EffectLayers, t: number): void {
+    maybeSpawnShootingStar(effects, t);
+    const { ctx } = this;
+    const dtClamp = 0.033;        // ≈ 30fps lower bound to avoid jumps on stalls
+    // Render + advance — operate in world space then convert.
+    for (let i = effects.shootingStars.length - 1; i >= 0; i--) {
+      const s = effects.shootingStars[i];
+      s.x += s.vx * dtClamp;
+      s.y += s.vy * dtClamp;
+      s.life += dtClamp;
+      if (s.life > s.maxLife) {
+        effects.shootingStars.splice(i, 1);
+        continue;
+      }
+      const fade = 1 - s.life / s.maxLife;
+      const norm = Math.hypot(s.vx, s.vy);
+      const dxn = s.vx / norm;
+      const dyn = s.vy / norm;
+      // Shooting stars ignore zoom/pan — they fly across the canvas in
+      // display-space so they don't feel locked to the world coordinate
+      // system. Convert world → display once.
+      const sx = s.x * WORLD_TO_SCREEN_SCALE;
+      const sy = s.y * WORLD_TO_SCREEN_SCALE;
+      const lenDisp = s.length * WORLD_TO_SCREEN_SCALE;
+      const tailX = sx - dxn * lenDisp;
+      const tailY = sy - dyn * lenDisp;
+      const tailGrad = ctx.createLinearGradient(sx, sy, tailX, tailY);
+      tailGrad.addColorStop(0, `rgba(255,255,255,${0.95 * fade})`);
+      tailGrad.addColorStop(0.4, `rgba(220,230,255,${0.5 * fade})`);
+      tailGrad.addColorStop(1, "rgba(180,200,255,0)");
+      ctx.strokeStyle = tailGrad;
+      ctx.lineWidth = 1.4;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(tailX, tailY);
+      ctx.stroke();
+      // Bright head.
+      ctx.fillStyle = `rgba(255,255,255,${fade})`;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    void t;                                    // silence unused — kept for future ease
   }
 
   private drawConstellationLines(
@@ -207,92 +365,3 @@ function glowColorFor(stored: string): string {
   // Lower-alpha glow derived from the same hue. Replace the trailing alpha.
   return stored.replace(/,\s*([0-9.]+)\)\s*$/, ", 0.35)");
 }
-
-// Lightweight deterministic noise so the same seed produces the same radius
-// without pulling rand into the frontend.
-function procRadius(seed: number): number {
-  const v = mulberry32(seed)();
-  return 12 + v * 18;
-}
-
-function drawPlanet(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
-  r: number,
-  planet: Planet,
-): void {
-  const palette = PLANET_PALETTES[planet.planet_type] ?? PLANET_PALETTES.default;
-  const rng = mulberry32(planet.seed + 1);
-  const base = palette[Math.floor(rng() * palette.length)];
-
-  ctx.fillStyle = base;
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Surface shadow.
-  ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
-  ctx.beginPath();
-  ctx.arc(cx + r * 0.3, cy + r * 0.2, r * 0.45, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Rarity ring (subtle, ≥ rare only).
-  const rarityRing = RARITY_RING[planet.rarity];
-  if (rarityRing) {
-    ctx.strokeStyle = rarityRing;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-}
-
-const RARITY_RING: Record<Rarity, string | null> = {
-  common: null,
-  rare: "rgba(140, 200, 255, 0.7)",
-  epic: "rgba(220, 160, 255, 0.7)",
-  legendary: "rgba(255, 200, 130, 0.85)",
-  mythic: "rgba(255, 170, 200, 0.95)",
-};
-
-type Rarity = Planet["rarity"];
-
-const PLANET_PALETTES: Record<string, string[]> = {
-  // Common
-  earth_like: ["#5a8fbf", "#6a9d70", "#2d6a4f"],
-  gas_giant: ["#d4a574", "#c98765", "#a06243"],
-  mars_like: ["#cd5c3a", "#993c1d", "#7a2e16"],
-  ice_giant: ["#a8d0e6", "#7fb3d5", "#5499c7"],
-  dead_world: ["#5a5a6e", "#3b3b4a", "#2a2a35"],
-  lava_world: ["#ff5733", "#c70039", "#8b0000"],
-  crystal: ["#9d4edd", "#c77dff", "#7b2cbf"],
-  ocean_world: ["#185fa5", "#1e88e5", "#0d47a1"],
-  desert_world: ["#d4a04b", "#b8862e", "#8b5a00"],
-  mist_world: ["#9fa8b8", "#7a8595", "#5d6975"],
-  volcanic: ["#993c1d", "#d85a30", "#6b1f0f"],
-  jungle: ["#3b6d11", "#5a8a1f", "#234d0a"],
-  // Rare
-  storm: ["#534ab7", "#3d348b", "#7159c9"],
-  pearl: ["#f4ecf7", "#e8e0ed", "#cfc4d4"],
-  amethyst: ["#9b59b6", "#7d3c98", "#a569bd"],
-  emerald: ["#0f6e56", "#1b8a64", "#27ae60"],
-  mirror: ["#bdc3c7", "#85929e", "#5d6d7e"],
-  botanical: ["#27ae60", "#1e8449", "#196f3d"],
-  mystic: ["#854f0b", "#a0651a", "#6e3d05"],
-  twilight: ["#7e57c2", "#5e35b1", "#9575cd"],
-  nocturnal: ["#1a237e", "#283593", "#3949ab"],
-  multi_ocean: ["#0277bd", "#0288d1", "#039be5"],
-  // Epic
-  diamond: ["#e8f4ff", "#b3e5fc", "#81d4fa"],
-  rainbow: ["#ff6b6b", "#feca57", "#48dbfb"],
-  mask: ["#212121", "#424242", "#616161"],
-  golden: ["#ffd700", "#daa520", "#b8860b"],
-  grid: ["#2c3e50", "#34495e", "#4a6378"],
-  // Legendary
-  eye_world: ["#1c1c2e", "#2a2a44", "#3b3b5a"],
-  ancient_civilization: ["#7d6608", "#9c7a14", "#b9990f"],
-  // Mythic
-  dyson_sphere: ["#ffd700", "#ff9a4d", "#ff4d4d"],
-  default: ["#666666"],
-};

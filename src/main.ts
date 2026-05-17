@@ -8,8 +8,12 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { activateAchievements } from "./views/achievements";
-import { activateCodex } from "./views/codex";
-import { activateGallery } from "./views/gallery";
+import {
+  activateCodex,
+  closeConstellationDetail,
+  closePlanetModal,
+} from "./views/codex";
+import { activateGallery, closeGalleryOverlay } from "./views/gallery";
 import { activateToday, deactivateToday } from "./views/today";
 
 type TabKey = "today" | "codex" | "achievements" | "gallery";
@@ -32,6 +36,10 @@ function readHashTab(): TabKey {
 
 async function switchTab(target: TabKey, updateHash = true): Promise<void> {
   if (activeTab === target) return;
+  // Dismiss any open modal/overlay before switching — a planet detail or a
+  // constellation detail belonging to the previous tab shouldn't bleed into
+  // the next one.
+  closeAllModals();
   if (activeTab === "today") {
     deactivateToday();
   }
@@ -73,6 +81,59 @@ function attachTabClicks() {
   });
 }
 
+/**
+ * Closes every modal/overlay in the app. Called on tab switch and from the
+ * global Esc / close-button handlers wired below. Each module's closer takes
+ * care of its own renderer/observer cleanup.
+ */
+function closeAllModals() {
+  closeGalleryOverlay();
+  closeConstellationDetail();
+  closePlanetModal();
+  // Discovery overlay closes via its own DISMISS / CODEX buttons. Hiding it
+  // here keeps the screen clean on tab switch; pending discoveries fall
+  // back to the +N badge on Today next time.
+  const disc = document.getElementById("discovery-overlay");
+  if (disc) disc.hidden = true;
+}
+
+function wireGlobalModalHandlers() {
+  // `gal-overlay` is shared between Gallery detail and Constellation detail.
+  // Wire its chrome once at init so closing works regardless of which view
+  // opened it (the previous setup only attached during Gallery activation).
+  const galOverlay = document.getElementById("gal-overlay");
+  const galClose = document.getElementById("gal-overlay-close");
+  galClose?.addEventListener("click", () => {
+    closeGalleryOverlay();
+    closeConstellationDetail();
+  });
+  galOverlay?.addEventListener("click", (e) => {
+    if (e.target === galOverlay) {
+      closeGalleryOverlay();
+      closeConstellationDetail();
+    }
+  });
+
+  // Planet quick-detail modal.
+  const planetModal = document.getElementById("planet-modal");
+  const planetClose = document.getElementById("planet-modal-close");
+  planetClose?.addEventListener("click", () => closePlanetModal());
+  planetModal?.addEventListener("click", (e) => {
+    if (e.target === planetModal) closePlanetModal();
+  });
+
+  // Global Escape: close anything that's open.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      // Ignore Escape while typing into the drawing-bar name input — its
+      // own handler returns to the count row instead of closing modals.
+      const target = e.target as HTMLElement | null;
+      if (target && target.id === "draw-bar-name") return;
+      closeAllModals();
+    }
+  });
+}
+
 async function refreshTokenPill(): Promise<void> {
   try {
     const total = await invoke<number>("get_today_total");
@@ -86,6 +147,7 @@ async function refreshTokenPill(): Promise<void> {
 
 window.addEventListener("DOMContentLoaded", () => {
   attachTabClicks();
+  wireGlobalModalHandlers();
   void switchTab(readHashTab(), false);
   void refreshTokenPill();
   setInterval(() => void refreshTokenPill(), TOKEN_PILL_INTERVAL_MS);

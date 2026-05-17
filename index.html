@@ -4,6 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tokenova</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" />
     <link rel="stylesheet" href="/src/styles.css" />
     <script type="module" src="/src/main.ts" defer></script>
   </head>
@@ -48,6 +55,8 @@
               <span class="th-sub" id="cluster-sub">SEED · —</span>
             </div>
             <div class="th-zoom">
+              <span class="th-layout" id="th-layout" hidden>—</span>
+              <span class="th-mood" id="th-mood" hidden>—</span>
               <span class="th-zoom-lbl">ZOOM</span>
               <span class="th-zoom-x" id="zoom-x">1.0x</span>
             </div>
@@ -71,6 +80,37 @@
               <span id="discoveries-badge-count">0</span>
               <span>NEW DISCOVERIES</span>
             </button>
+
+            <!-- Constellation drawing action bar — visible only while drawing. -->
+            <div class="draw-bar" id="draw-bar" hidden>
+              <div class="draw-bar-row" id="draw-bar-count-row">
+                <span class="draw-bar-label">
+                  별 <b id="draw-bar-count">0</b>개 연결됨<span
+                    class="muted"
+                    id="draw-bar-muted"
+                    hidden
+                  > · 최소 2개 필요</span>
+                </span>
+                <button class="draw-bar-btn ghost" id="draw-bar-cancel" type="button">취소</button>
+                <button class="draw-bar-btn primary" id="draw-bar-save" type="button" disabled>
+                  별자리 등록
+                </button>
+              </div>
+              <div class="draw-bar-row" id="draw-bar-name-row" hidden>
+                <input
+                  class="draw-bar-input"
+                  id="draw-bar-name"
+                  type="text"
+                  maxlength="20"
+                  placeholder="자동으로 지어집니다"
+                />
+                <button class="draw-bar-btn ghost" id="draw-bar-back" type="button">뒤로</button>
+                <button class="draw-bar-btn primary" id="draw-bar-commit" type="button">등록</button>
+              </div>
+              <div class="draw-bar-hint" id="draw-bar-hint" hidden>
+                이름은 비워두면 자동으로 지어집니다.
+              </div>
+            </div>
           </div>
 
           <div class="today-hud">
@@ -79,7 +119,14 @@
               <span class="star-counter">
                 <span class="gly"><span style="height:3px"></span><span style="height:6px"></span><span style="height:9px"></span></span>
                 <b id="hud-stars">0</b>
-                <span>/ 1000</span>
+                <span class="sep">·</span>
+                <span class="planet-glyph" aria-hidden="true">
+                  <svg viewBox="0 0 14 14" width="11" height="11" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="7" cy="7" r="3" stroke="currentColor" stroke-width="1.1" />
+                    <ellipse cx="7" cy="7" rx="6" ry="1.8" stroke="currentColor" stroke-width="0.8" transform="rotate(-20 7 7)" />
+                  </svg>
+                </span>
+                <b id="hud-planets">0</b>
                 <span class="sep">·</span>
                 <span class="gtype" id="hud-galaxy">—</span>
               </span>
@@ -97,12 +144,22 @@
             <div class="page-head">
               <div>
                 <h1>Codex</h1>
-                <div class="desc">PLANET ARCHIVE · 30 TYPES</div>
+                <div class="desc" id="codex-desc">30 SPECIES · 행성 도감</div>
               </div>
               <div class="right">
-                <div class="big"><span id="codex-discovered">0</span><span class="of">/</span><span id="codex-total">30</span></div>
-                <span class="lbl">DISCOVERED</span>
+                <div class="big">
+                  <span id="codex-discovered">0</span><span class="of">/</span><span id="codex-total">30</span>
+                </div>
+                <span class="lbl" id="codex-right-lbl">DISCOVERED</span>
               </div>
+            </div>
+            <div class="codex-subtabs" id="codex-subtabs">
+              <button class="on" data-sub="planets" type="button">
+                행성 <span class="num" id="codex-planets-num">0/30</span>
+              </button>
+              <button data-sub="constellations" type="button">
+                별자리 <span class="num" id="codex-const-num">0</span>
+              </button>
             </div>
             <div id="codex-content"></div>
           </div>
@@ -122,7 +179,8 @@
               </div>
             </div>
             <div class="ach-cat-tabs" id="ach-cat-tabs">
-              <button class="ach-cat on" data-cat="starter" type="button">시작</button>
+              <button class="ach-cat on" data-cat="all" type="button">전체</button>
+              <button class="ach-cat" data-cat="starter" type="button">시작</button>
               <button class="ach-cat" data-cat="collection" type="button">수집</button>
               <button class="ach-cat" data-cat="time" type="button">시간</button>
               <button class="ach-cat" data-cat="rhythm" type="button">리듬</button>

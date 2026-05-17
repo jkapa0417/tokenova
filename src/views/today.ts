@@ -7,6 +7,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { PLANET_BY_ID, RARITY_LABEL, TIER_PROBABILITY } from "../universe/catalog";
 import { makeView, type View } from "../universe/camera";
+import { buildEffects, type EffectLayers, type Mood } from "../universe/effects";
 import { UniverseInteraction } from "../universe/interaction";
 import { planetSvg } from "../universe/planet-svg";
 import { UniverseRenderer, type Scene } from "../universe/renderer";
@@ -34,7 +35,19 @@ const GALAXY_LABEL: Record<GalaxyType, string> = {
   super_cluster: "초은하단",
 };
 
+const LAYOUT_BADGE: Record<string, string> = {
+  spiral: "SPIRAL",
+  elliptical: "ELLIPTICAL",
+  irregular: "IRREGULAR",
+  dual_cluster: "DUAL",
+  scattered: "SCATTERED",
+  core_heavy: "CORE",
+};
+
 const BLACKHOLE_TAGLINE = "오늘은 쉬어가요. · 블랙홀도 우주의 일부입니다.";
+const NORMAL_HINT =
+  `<b>별 클릭</b> 별자리 만들기<span class="sep">·</span>` +
+  `<b>휠</b> 줌<span class="sep">·</span><b>드래그</b> 이동`;
 
 const CONSTELLATION_COLORS = [
   { main: "rgba(255, 200, 130, 0.9)", glow: "rgba(255, 180, 80, 0.35)" },
@@ -53,7 +66,7 @@ const ADJECTIVES = [
   "깨어난", "어린", "늙은", "북쪽의", "남쪽의",
 ];
 
-function generateConstellationName(): string {
+function autoConstellationName(): string {
   const a = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
   const s = SUBJECTS[Math.floor(Math.random() * SUBJECTS.length)];
   return `${a} ${s}자리`;
@@ -84,15 +97,23 @@ interface TodayState {
   interaction: UniverseInteraction | null;
   unlistenStars: UnlistenFn | null;
   unlistenPlanet: UnlistenFn | null;
+  effects: EffectLayers | null;
+  effectsSeed: number | null;
+  /** Bar UX state: which row is showing (count vs. naming). */
+  drawingMode: "count" | "naming";
 }
 
 let state: TodayState | null = null;
+let escListener: ((e: KeyboardEvent) => void) | null = null;
 
 export function activateToday(): void {
   if (state) {
     state.pollTimer ??= window.setInterval(() => void poll(), POLL_INTERVAL_MS);
     void poll();
     void refreshDiscoveryBadge();
+    // The renderer was paused on deactivate; nudge it back to life.
+    requestRender();
+    attachEscListener();
     return;
   }
 
@@ -114,6 +135,9 @@ export function activateToday(): void {
     interaction: null,
     unlistenStars: null,
     unlistenPlanet: null,
+    effects: null,
+    effectsSeed: null,
+    drawingMode: "count",
   };
   state = local;
 
@@ -124,7 +148,10 @@ export function activateToday(): void {
       requestRender();
     },
     onStarClick: (star) => onStarClick(star),
-    onEmptyClick: () => void onEmptyClick(),
+    onEmptyClick: () => {
+      // Empty-space click during drawing is intentionally a no-op now —
+      // saving requires explicit confirmation in the .draw-bar widget.
+    },
     onHoverChange: (star) => {
       local.hoveredStarId = star?.id ?? null;
       requestRender();
@@ -155,9 +182,11 @@ export function activateToday(): void {
     else fn();
   });
 
+  wireDrawingBar();
+  attachEscListener();
+
   local.pollTimer = window.setInterval(() => void poll(), POLL_INTERVAL_MS);
   void poll();
-  // Show any pending overlays for planets discovered while the popover was closed.
   void refreshDiscoveryBadge();
 }
 
@@ -167,17 +196,21 @@ export function deactivateToday(): void {
     clearInterval(state.pollTimer);
     state.pollTimer = null;
   }
+  // Stop the rAF loop while another tab is active — saves battery and avoids
+  // off-screen work.
+  state.renderer?.stop();
+  detachEscListener();
 }
 
 function requestRender() {
   if (!state || !state.renderer) return;
   const scene: Scene = {
     stars: state.stars,
-    planets: state.planets,
     nebulae: state.nebulae,
     constellations: state.constellations,
     currentConstellation: state.currentConstellation,
     hoveredStarId: state.hoveredStarId,
+    effects: state.effects,
   };
   state.renderer.request(state.view, scene);
 }
@@ -203,35 +236,8 @@ function onStarClick(star: Star) {
       state.currentConstellation.starIds.push(star.id);
     }
   }
+  refreshDrawingBar();
   requestRender();
-}
-
-async function onEmptyClick() {
-  if (!state) return;
-  if (!state.currentConstellation || state.currentConstellation.starIds.length < 2) {
-    state.currentConstellation = null;
-    requestRender();
-    return;
-  }
-
-  const color =
-    CONSTELLATION_COLORS[state.constellationColorIdx % CONSTELLATION_COLORS.length];
-  const name = generateConstellationName();
-  state.constellationColorIdx++;
-
-  try {
-    await invoke("save_constellation", {
-      name,
-      color: color.main,
-      starIds: state.currentConstellation.starIds,
-      presetId: null,
-    });
-  } catch (e) {
-    console.error("save_constellation:", e);
-  }
-
-  state.currentConstellation = null;
-  await poll();
 }
 
 async function poll() {
@@ -246,13 +252,22 @@ async function poll() {
     state.nebulae = payload.nebulae ?? [];
     state.constellations = payload.constellations ?? [];
 
+    // (Re)seed effect layers when the universe seed changes — i.e. on first
+    // load and again at day rollover. Keep existing layers otherwise so dust
+    // and shooting-star pacing stay continuous.
+    const seed = payload.universe.seed;
+    if (state.effectsSeed !== seed) {
+      state.effects = buildEffects(seed);
+      state.effectsSeed = seed;
+    }
+
     paintHud(payload);
     paintClusterTag(payload);
+    paintMoodBadge(payload, state.effects?.mood ?? null);
     rebuildPlanetPins(state.planets);
     requestRender();
   } catch (e) {
     console.error("poll:", e);
-    // Surface the failure on-screen so issues are visible without dev tools.
     const $tokens = document.getElementById("hud-tokens");
     if ($tokens) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -286,9 +301,11 @@ async function poll() {
 function paintHud(payload: UniversePayload) {
   const $tokens = document.getElementById("hud-tokens");
   const $stars = document.getElementById("hud-stars");
+  const $planets = document.getElementById("hud-planets");
   const $galaxy = document.getElementById("hud-galaxy");
   if ($tokens) $tokens.textContent = numberFmt.format(payload.today_tokens);
   if ($stars) $stars.textContent = String(payload.universe.star_count);
+  if ($planets) $planets.textContent = String((payload.planets ?? []).length);
   if ($galaxy) {
     const g =
       payload.universe.galaxy_type ?? classifyGalaxy(payload.universe.star_count);
@@ -302,12 +319,183 @@ function applyBlackholeMood(isBlackhole: boolean) {
   if (wrap) wrap.classList.toggle("blackhole-day", isBlackhole);
   const hint = document.querySelector(".hint-row");
   if (!hint) return;
-  if (isBlackhole) {
-    hint.innerHTML = BLACKHOLE_TAGLINE;
-  } else {
-    hint.innerHTML =
-      `<b>WHEEL</b> ZOOM<span class="sep">·</span><b>DRAG</b> PAN<span class="sep">·</span><b>CLICK</b> CONSTELLATION`;
+  hint.innerHTML = isBlackhole ? BLACKHOLE_TAGLINE : NORMAL_HINT;
+}
+
+function paintMoodBadge(payload: UniversePayload, mood: Mood | null) {
+  const $layout = document.getElementById("th-layout");
+  const $mood = document.getElementById("th-mood");
+  const layout = payload.universe.layout_shape ?? "";
+  if ($layout) {
+    const label = LAYOUT_BADGE[layout];
+    if (label) {
+      $layout.textContent = label;
+      $layout.hidden = false;
+    } else {
+      $layout.hidden = true;
+    }
   }
+  if ($mood) {
+    if (mood) {
+      $mood.textContent = mood.name;
+      $mood.style.color = mood.accent;
+      $mood.style.borderColor = `${mood.accent}55`;
+      $mood.hidden = false;
+    } else {
+      $mood.hidden = true;
+    }
+  }
+}
+
+// ───────────────────── Constellation drawing bar ─────────────────────
+//
+// Replaces the old auto-save-on-empty-click flow. Bar appears while
+// `currentConstellation` is non-null and toggles between a count row
+// (취소 / 별자리 등록) and a naming row (input / 뒤로 / 등록).
+
+function wireDrawingBar(): void {
+  const cancelBtn = document.getElementById("draw-bar-cancel");
+  const saveBtn = document.getElementById("draw-bar-save");
+  const backBtn = document.getElementById("draw-bar-back");
+  const commitBtn = document.getElementById("draw-bar-commit");
+  const input = document.getElementById("draw-bar-name") as HTMLInputElement | null;
+
+  cancelBtn?.addEventListener("click", () => cancelCurrent());
+  saveBtn?.addEventListener("click", () => enterNamingMode());
+  backBtn?.addEventListener("click", () => exitNamingMode());
+  commitBtn?.addEventListener("click", () => void commitCurrent());
+
+  input?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void commitCurrent();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      exitNamingMode();
+    }
+  });
+}
+
+function attachEscListener(): void {
+  if (escListener) return;
+  escListener = (e: KeyboardEvent) => {
+    if (e.key !== "Escape") return;
+    // Don't steal Escape while typing into the name input — the input has
+    // its own handler that backs out of naming mode.
+    const target = e.target as HTMLElement | null;
+    if (target && target.id === "draw-bar-name") return;
+    if (state?.currentConstellation) {
+      e.preventDefault();
+      cancelCurrent();
+    }
+  };
+  document.addEventListener("keydown", escListener);
+}
+
+function detachEscListener(): void {
+  if (!escListener) return;
+  document.removeEventListener("keydown", escListener);
+  escListener = null;
+}
+
+function refreshDrawingBar(): void {
+  const bar = document.getElementById("draw-bar");
+  if (!bar || !state) return;
+  const current = state.currentConstellation;
+  if (!current) {
+    bar.hidden = true;
+    state.drawingMode = "count";
+    showCountRow();
+    return;
+  }
+  bar.hidden = false;
+  if (state.drawingMode === "count") {
+    showCountRow();
+    const count = current.starIds.length;
+    const $count = document.getElementById("draw-bar-count");
+    const $muted = document.getElementById("draw-bar-muted");
+    const $save = document.getElementById("draw-bar-save") as HTMLButtonElement | null;
+    if ($count) $count.textContent = String(count);
+    if ($muted) $muted.hidden = count >= 2;
+    if ($save) $save.disabled = count < 2;
+  } else {
+    showNameRow();
+  }
+}
+
+function showCountRow(): void {
+  const $count = document.getElementById("draw-bar-count-row");
+  const $name = document.getElementById("draw-bar-name-row");
+  const $hint = document.getElementById("draw-bar-hint");
+  if ($count) $count.hidden = false;
+  if ($name) $name.hidden = true;
+  if ($hint) $hint.hidden = true;
+}
+
+function showNameRow(): void {
+  const $count = document.getElementById("draw-bar-count-row");
+  const $name = document.getElementById("draw-bar-name-row");
+  const $hint = document.getElementById("draw-bar-hint");
+  const $input = document.getElementById("draw-bar-name") as HTMLInputElement | null;
+  if ($count) $count.hidden = true;
+  if ($name) $name.hidden = false;
+  if ($hint) $hint.hidden = false;
+  if ($input) {
+    $input.value = "";
+    $input.placeholder = autoConstellationName();
+    setTimeout(() => $input.focus(), 30);
+  }
+}
+
+function enterNamingMode(): void {
+  if (!state || !state.currentConstellation) return;
+  if (state.currentConstellation.starIds.length < 2) return;
+  state.drawingMode = "naming";
+  refreshDrawingBar();
+}
+
+function exitNamingMode(): void {
+  if (!state) return;
+  state.drawingMode = "count";
+  refreshDrawingBar();
+}
+
+function cancelCurrent(): void {
+  if (!state) return;
+  state.currentConstellation = null;
+  state.drawingMode = "count";
+  refreshDrawingBar();
+  requestRender();
+}
+
+async function commitCurrent(): Promise<void> {
+  if (!state || !state.currentConstellation) return;
+  if (state.currentConstellation.starIds.length < 2) return;
+
+  const $input = document.getElementById("draw-bar-name") as HTMLInputElement | null;
+  const typed = ($input?.value ?? "").trim();
+  const name = typed || autoConstellationName();
+  const color =
+    CONSTELLATION_COLORS[state.constellationColorIdx % CONSTELLATION_COLORS.length];
+  state.constellationColorIdx++;
+
+  const starIds = state.currentConstellation.starIds.slice();
+
+  try {
+    await invoke("save_constellation", {
+      name,
+      color: color.main,
+      starIds,
+      presetId: null,
+    });
+  } catch (e) {
+    console.error("save_constellation:", e);
+  }
+
+  state.currentConstellation = null;
+  state.drawingMode = "count";
+  refreshDrawingBar();
+  await poll();
 }
 
 // ───────────────────── Planet pins overlay ─────────────────────
@@ -325,7 +513,6 @@ function rebuildPlanetPins(planets: Planet[]) {
   const layer = document.getElementById("planet-overlay");
   if (!layer) return;
   layer.innerHTML = planets.map(renderPinHtml).join("");
-  // Wire click → open the discovery overlay (single-item) for any pin.
   layer.querySelectorAll<HTMLElement>(".planet-pin").forEach((el) => {
     el.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -362,15 +549,17 @@ function renderPinHtml(p: Planet): string {
   `;
 }
 
+// Halo extends `inset: -6px` and the NEW badge pokes ~10 px past the corner,
+// so the effective sprite half-extent is larger than the 13 px pin radius.
+const PIN_SPRITE_HALF_PX = 22;
+
 function updatePlanetPins() {
   if (!state) return;
   const layer = document.getElementById("planet-overlay");
   if (!layer) return;
   const view = state.view;
-  // Visible window of world coordinates at current zoom/pan.
   const visibleW = UNIVERSE_W / view.zoom;
   const visibleH = UNIVERSE_H / view.zoom;
-  // Pin pixel size scales linearly from 26 at zoom 1 to 96 at zoom 8.
   const sizePx = clamp(
     PIN_MIN_PX,
     PIN_MAX_PX,
@@ -378,14 +567,24 @@ function updatePlanetPins() {
   );
   const pinScale = sizePx / PIN_BASE_PX;
 
+  const rect = layer.getBoundingClientRect();
+  const wrapW = rect.width || 1;
+  const wrapH = rect.height || 1;
+  const spriteHalfPx = PIN_SPRITE_HALF_PX * pinScale;
+  const marginX = spriteHalfPx / wrapW;
+  const marginY = spriteHalfPx / wrapH;
+
   layer.querySelectorAll<HTMLElement>(".planet-pin").forEach((el) => {
     const px = parseFloat(el.dataset.px ?? "0");
     const py = parseFloat(el.dataset.py ?? "0");
     const nx = (px - view.x) / visibleW;
     const ny = (py - view.y) / visibleH;
-    // Outside the viewport → hide. Otherwise position by percentage so we
-    // automatically follow any container resize.
-    if (nx < -0.02 || nx > 1.02 || ny < -0.02 || ny > 1.02) {
+    if (
+      nx < marginX ||
+      nx > 1 - marginX ||
+      ny < marginY ||
+      ny > 1 - marginY
+    ) {
       el.classList.add("off-screen");
       return;
     }
