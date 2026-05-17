@@ -1,16 +1,41 @@
 // 30-planet catalog mirroring the design's `data.jsx` — names, descriptions,
 // palettes, feature flags. Used by Codex, Discovery overlay, and (eventually)
 // the procedural SVG planet renderer.
+//
+// Display strings (name + desc + tier label) are read from the i18n
+// dictionary at lookup time so the same catalog row renders in either locale.
+// The hard-coded Korean strings on each `PlanetSpec` are fallback values used
+// when an i18n key is missing — keep them up to date with `locales/ko.ts`.
 
+import { t } from "../i18n";
 import type { Rarity } from "./types";
 
-export const RARITY_LABEL: Record<Rarity, string> = {
-  common: "일반",
-  rare: "희귀",
-  epic: "에픽",
-  legendary: "전설",
-  mythic: "신화",
-};
+// Backwards-compatible static map. Prefer `rarityLabel()` so the result
+// follows the current locale.
+export const RARITY_LABEL: Record<Rarity, string> = new Proxy(
+  {} as Record<Rarity, string>,
+  {
+    get(_target, prop: string) {
+      return t(`rarity.${prop}`);
+    },
+  },
+);
+
+export function rarityLabel(r: Rarity): string {
+  return t(`rarity.${r}`);
+}
+
+export function planetName(id: string, fallback?: string): string {
+  const key = `planets.${id}.name`;
+  const v = t(key);
+  return v === key ? (fallback ?? id) : v;
+}
+
+export function planetDesc(id: string, fallback?: string): string {
+  const key = `planets.${id}.desc`;
+  const v = t(key);
+  return v === key ? (fallback ?? "") : v;
+}
 
 export const RARITY_TIER_CODE: Record<Rarity, "c" | "u" | "e" | "l" | "m"> = {
   common: "c",
@@ -288,12 +313,26 @@ export const PLANET_BY_ID: Record<string, PlanetSpec> = Object.fromEntries(
   PLANETS.map((p) => [p.id, p]),
 );
 
-export const PLANET_DISPLAY_NAMES: Record<string, string> = Object.fromEntries(
-  PLANETS.map((p) => [p.id, p.name]),
+// Live i18n-backed lookups. Iterating PLANETS at module load would freeze the
+// strings in the initial locale; use a Proxy so the lookup runs at access time.
+export const PLANET_DISPLAY_NAMES: Record<string, string> = new Proxy(
+  {} as Record<string, string>,
+  {
+    get(_target, prop: string) {
+      const spec = PLANET_BY_ID[prop];
+      return spec ? planetName(prop, spec.name) : undefined;
+    },
+  },
 );
 
-export const PLANET_DESCRIPTIONS: Record<string, string> = Object.fromEntries(
-  PLANETS.map((p) => [p.id, p.desc]),
+export const PLANET_DESCRIPTIONS: Record<string, string> = new Proxy(
+  {} as Record<string, string>,
+  {
+    get(_target, prop: string) {
+      const spec = PLANET_BY_ID[prop];
+      return spec ? planetDesc(prop, spec.desc) : undefined;
+    },
+  },
 );
 
 export const TIER_ORDER: Rarity[] = ["common", "rare", "epic", "legendary", "mythic"];

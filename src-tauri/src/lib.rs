@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod engine;
+mod i18n;
 mod notifier;
 mod parser;
 mod session;
@@ -55,6 +56,8 @@ pub fn run() {
             commands::get_providers_health,
             commands::set_provider_path,
             commands::clear_provider_path,
+            commands::get_setting,
+            commands::set_locale,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -101,7 +104,7 @@ pub fn run() {
             app.manage(db.clone());
 
             // --- Notifier ---
-            let notifier = Arc::new(Notifier::new(Policy::Standard));
+            let notifier = Arc::new(Notifier::new(db.clone(), Policy::Standard));
             app.manage(notifier.clone());
 
             // --- Event buses ---

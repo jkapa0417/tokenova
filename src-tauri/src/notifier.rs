@@ -10,13 +10,15 @@
 //! A daily cap of [`DAILY_CAP`] silences further notifications once tripped so
 //! the user is never flooded.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use chrono::{Local, NaiveDate};
 use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
 
+use crate::db::Db;
 use crate::engine::types::{GalaxyType, Rarity};
+use crate::i18n;
 
 pub const DAILY_CAP: u32 = 5;
 
@@ -31,6 +33,10 @@ pub enum Policy {
 
 pub struct Notifier {
     state: Mutex<State>,
+    /// DB handle used to look up the current `locale` setting on each emit so
+    /// notification text stays in sync with the UI language without needing
+    /// any extra channel between front and back.
+    db: Arc<Db>,
 }
 
 #[derive(Debug)]
@@ -42,8 +48,9 @@ struct State {
 }
 
 impl Notifier {
-    pub fn new(policy: Policy) -> Self {
+    pub fn new(db: Arc<Db>, policy: Policy) -> Self {
         Self {
+            db,
             state: Mutex::new(State {
                 policy,
                 sent_today: 0,
@@ -57,21 +64,21 @@ impl Notifier {
         if !self.allowed(visible_at_standard) {
             return;
         }
-        let title = match rarity {
-            Rarity::Mythic => "신화 행성 발견!",
-            Rarity::Legendary => "전설 행성 발견!",
-            Rarity::Epic => "에픽 행성 발견",
-            Rarity::Rare => "희귀 행성 발견",
-            Rarity::Common => "행성 발견",
-        };
-        self.send(app, title, planet_name);
+        let locale = i18n::current_locale(&self.db);
+        self.send(app, i18n::planet_rarity_title(locale, rarity), planet_name);
     }
 
-    pub fn achievement_earned(&self, app: &AppHandle, display_name: &str) {
+    pub fn achievement_earned(&self, app: &AppHandle, key_or_display: &str) {
         if !self.allowed(true) {
             return;
         }
-        self.send(app, "업적 달성", display_name);
+        let locale = i18n::current_locale(&self.db);
+        // The engine currently passes the engine's display_name (Korean) here;
+        // re-translate from the key when we can recognise it, otherwise just
+        // emit whatever string was handed in.
+        let body = i18n::achievement_display_name(locale, key_or_display);
+        let body_str: &str = if body == "??" { key_or_display } else { body };
+        self.send(app, i18n::achievement_earned_title(locale), body_str);
     }
 
     /// Fires when the live universe crosses the 100-star "은하 등급" boundary.
@@ -79,10 +86,11 @@ impl Notifier {
         if !self.allowed(true) {
             return;
         }
+        let locale = i18n::current_locale(&self.db);
         self.send(
             app,
-            "오늘의 우주",
-            &format!("별 {star_count}개 — 은하 형성"),
+            i18n::todays_universe_title(locale),
+            &i18n::galaxy_formed_body(locale, star_count),
         );
     }
 
@@ -90,15 +98,12 @@ impl Notifier {
         if !self.allowed(true) {
             return;
         }
-        let body = match galaxy {
-            GalaxyType::BlackHole => "블랙홀의 날",
-            GalaxyType::Nebula => "성운으로 마감",
-            GalaxyType::Cluster => "별무리로 마감",
-            GalaxyType::Galaxy => "은하로 마감",
-            GalaxyType::MegaGalaxy => "거대 은하 달성",
-            GalaxyType::SuperCluster => "초은하단 — 최고 등급!",
-        };
-        self.send(app, "오늘의 우주 마감", body);
+        let locale = i18n::current_locale(&self.db);
+        self.send(
+            app,
+            i18n::universe_finalized_title(locale),
+            i18n::galaxy_type_finalize_body(locale, galaxy),
+        );
     }
 
     fn allowed(&self, standard_visible: bool) -> bool {

@@ -10,6 +10,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
+import { t } from "../i18n";
 import {
   PLANET_BY_ID,
   PLANET_DESCRIPTIONS,
@@ -133,7 +134,7 @@ function paintCard(planet: Planet) {
     PLANET_DISPLAY_NAMES[planet.planet_type] ?? planet.planet_type;
   const description =
     PLANET_DESCRIPTIONS[planet.planet_type] ??
-    "관측 데이터가 부족합니다. 더 많은 항해가 필요합니다.";
+    t("discovery.insufficient_data");
   const rarityLabel = RARITY_LABEL[planet.rarity];
   const ringColor = RARITY_RING_COLOR[planet.rarity];
 
@@ -149,7 +150,7 @@ function paintCard(planet: Planet) {
     : "—";
   const discoveredAt = planet.discovered_at
     ? shortDateFmt.format(new Date(planet.discovered_at))
-    : "방금";
+    : t("discovery.just_now");
 
   $card().innerHTML = `
     <div class="discovery-eyebrow">

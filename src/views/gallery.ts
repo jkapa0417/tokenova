@@ -5,6 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
+import { formatNumber, getLocale, t } from "../i18n";
 import { PLANET_BY_ID, RARITY_LABEL, TIER_PROBABILITY } from "../universe/catalog";
 import { makeView } from "../universe/camera";
 import { buildEffects } from "../universe/effects";
@@ -125,7 +126,7 @@ async function loadRange(range: Range) {
     primeCellThumbnails();
   } catch (e) {
     console.error("gallery:", e);
-    $content.innerHTML = `<div style="color: var(--fg-3); text-align: center; padding: 40px 0;">로딩 실패</div>`;
+    $content.innerHTML = `<div style="color: var(--fg-3); text-align: center; padding: 40px 0;">${t("gallery.load_failed")}</div>`;
   }
 }
 
@@ -152,8 +153,17 @@ function isBlackhole(s: UniverseSummary): boolean {
   return s.galaxy_type === "black_hole" || s.star_count === 0;
 }
 
-const DOW_KO = ["일", "월", "화", "수", "목", "금", "토"];
-const NUM = new Intl.NumberFormat("ko-KR");
+function dowLabels(): string[] {
+  return [
+    t("gallery.weekday_short.sun"),
+    t("gallery.weekday_short.mon"),
+    t("gallery.weekday_short.tue"),
+    t("gallery.weekday_short.wed"),
+    t("gallery.weekday_short.thu"),
+    t("gallery.weekday_short.fri"),
+    t("gallery.weekday_short.sat"),
+  ];
+}
 
 // ───────────── Week view (horizontal 7-cell strip) ─────────────
 
@@ -194,16 +204,17 @@ function renderWeekView(byDate: Map<string, UniverseSummary>, today: Date): stri
         thumb = `<div class="thumb-empty">·</div>`;
       }
       const meta = blackhole
-        ? `잠든 우주`
+        ? t("gallery.sleeping_label")
         : day.u
           ? `${day.u.star_count}<span class="dim">★</span>`
           : `—`;
       const dataAttrs = day.u
         ? `data-id="${day.u.id}" data-date="${iso}"`
         : "";
+      const dows = dowLabels();
       return `
         <div class="${cls.join(" ")}" ${dataAttrs}>
-          <div class="week-dow${dowCls}">${DOW_KO[day.date.getDay()]}</div>
+          <div class="week-dow${dowCls}">${dows[day.date.getDay()]}</div>
           <div class="week-num">${day.date.getDate()}</div>
           <div class="week-thumb">${thumb}</div>
           <div class="week-meta">${meta}</div>
@@ -215,13 +226,13 @@ function renderWeekView(byDate: Map<string, UniverseSummary>, today: Date): stri
   return `
     <div class="week-header">
       <div>
-        <div class="week-title">이번 주</div>
+        <div class="week-title">${t("gallery.this_week")}</div>
         <div class="week-sub">${rangeLabel}</div>
       </div>
       <div class="week-stats">
-        <span><b>${stats.universes}</b>우주</span>
-        <span><b>${NUM.format(stats.stars)}</b>별</span>
-        <span><b>${stats.planets}</b>행성</span>
+        <span><b>${stats.universes}</b>${t("gallery.summary.universes")}</span>
+        <span><b>${formatNumber(stats.stars)}</b>${t("gallery.summary.stars")}</span>
+        <span><b>${stats.planets}</b>${t("gallery.summary.planets")}</span>
       </div>
     </div>
     <div class="week-strip">${cells}</div>
@@ -293,22 +304,22 @@ function renderMonthView(
     }
   }
 
-  const dowHeader = DOW_KO.map((d, i) =>
+  const dowHeader = dowLabels().map((d, i) =>
     `<span${i === 0 ? ' class="sun"' : ""}>${d}</span>`
   ).join("");
 
   return `
     <div class="month-nav">
-      <button class="month-arrow" id="gallery-month-prev" type="button" aria-label="이전 달" ${canPrev ? "" : "disabled"}>
+      <button class="month-arrow" id="gallery-month-prev" type="button" aria-label="${t("gallery.prev_month")}" ${canPrev ? "" : "disabled"}>
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M9 3L5 7L9 11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
       </button>
       <div class="month-title">
         <div class="m-name">${monthLabel}</div>
-        <div class="m-meta">${recorded}일 · ${NUM.format(totalStars)}★ · 행성 ${totalPlanets}</div>
+        <div class="m-meta">${t("gallery.day_summary", { days: recorded, stars: formatNumber(totalStars), planets: totalPlanets })}</div>
       </div>
-      <button class="month-arrow" id="gallery-month-next" type="button" aria-label="다음 달" ${canNext ? "" : "disabled"}>
+      <button class="month-arrow" id="gallery-month-next" type="button" aria-label="${t("gallery.next_month")}" ${canNext ? "" : "disabled"}>
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M5 3L9 7L5 11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
@@ -435,9 +446,13 @@ function renderHeatmapView(
           const dataAttrs = d.u
             ? `data-id="${d.u.id}" data-date="${isoOf(d.date)}"`
             : "";
+          const dateLocale = getLocale() === "ko" ? "ko-KR" : "en-US";
+          const dateStr = d.date.toLocaleDateString(dateLocale);
           const tip = d.u
-            ? `${d.date.toLocaleDateString("ko-KR")} · ${isBlackhole(d.u) ? "잠든 우주" : `${d.u.star_count}★ · 행성 ${d.u.planet_count}`}`
-            : d.date.toLocaleDateString("ko-KR");
+            ? (isBlackhole(d.u)
+                ? t("gallery.day_summary_sleeping", { date: dateStr })
+                : t("gallery.day_summary_active", { date: dateStr, stars: d.u.star_count, planets: d.u.planet_count }))
+            : dateStr;
           return `<div class="${classes.join(" ")}" title="${tip}" ${dataAttrs}></div>`;
         })
         .join("");
@@ -453,40 +468,40 @@ function renderHeatmapView(
     <div class="heatmap-stats">
       <div class="hm-stat">
         <div class="hm-num">${totalUniverses}<span class="of">/365</span></div>
-        <div class="hm-lbl">우주</div>
+        <div class="hm-lbl">${t("gallery.summary.universes")}</div>
       </div>
       <div class="hm-stat">
-        <div class="hm-num">${streak}<span class="of">일</span></div>
-        <div class="hm-lbl">연속 기록</div>
+        <div class="hm-num">${streak}<span class="of">${t("gallery.summary.days")}</span></div>
+        <div class="hm-lbl">${t("gallery.summary.streak")}</div>
       </div>
       <div class="hm-stat">
-        <div class="hm-num">${NUM.format(totalStars)}</div>
-        <div class="hm-lbl">총 별</div>
+        <div class="hm-num">${formatNumber(totalStars)}</div>
+        <div class="hm-lbl">${t("gallery.summary.total_stars")}</div>
       </div>
       <div class="hm-stat">
         <div class="hm-num">${totalPlanets}</div>
-        <div class="hm-lbl">행성</div>
+        <div class="hm-lbl">${t("gallery.summary.planets")}</div>
       </div>
     </div>
     <div class="heatmap-wrap">
       <div class="hm-months">${monthsHtml}</div>
       <div class="hm-body">
         <div class="hm-dow">
-          <span>월</span><span>수</span><span>금</span>
+          <span>${t("gallery.weekday_short.mon")}</span><span>${t("gallery.weekday_short.wed")}</span><span>${t("gallery.weekday_short.fri")}</span>
         </div>
         <div class="hm-grid">${colsHtml}</div>
       </div>
       <div class="hm-legend">
-        <span>적음</span>
+        <span>${t("gallery.heatmap.low")}</span>
         <span class="hm-cell level-0"></span>
         <span class="hm-cell level-1"></span>
         <span class="hm-cell level-2"></span>
         <span class="hm-cell level-3"></span>
         <span class="hm-cell level-4"></span>
-        <span>많음</span>
+        <span>${t("gallery.heatmap.high")}</span>
         <span class="hm-sep">·</span>
         <span class="hm-cell blackhole"></span>
-        <span>잠든 우주</span>
+        <span>${t("gallery.heatmap.sleeping")}</span>
       </div>
     </div>
   `;
@@ -601,13 +616,13 @@ const LAYOUT_BADGE: Record<string, string> = {
   core_heavy: "CORE",
 };
 
-const GALAXY_LABEL: Record<string, string> = {
-  black_hole: "블랙홀",
-  nebula: "성운",
-  cluster: "별무리",
-  galaxy: "은하",
-  mega_galaxy: "거대 은하",
-  super_cluster: "초은하단",
+const GALAXY_LABEL_KEY: Record<string, string> = {
+  black_hole: "galaxy_type.black_hole",
+  nebula: "galaxy_type.nebula",
+  cluster: "galaxy_type.cluster",
+  galaxy: "galaxy_type.galaxy",
+  mega_galaxy: "galaxy_type.mega",
+  super_cluster: "galaxy_type.super",
 };
 
 interface OverlayHandle {
@@ -660,7 +675,7 @@ async function openOverlay(summary: UniverseSummary, dateIso: string) {
         </span>
       </div>
       <div class="gal-hud-hint">
-        <b>WHEEL</b> ZOOM<span class="sep">·</span><b>DRAG</b> PAN<span class="sep">·</span>행성 클릭하면 도감 열림
+        <b>WHEEL</b> ZOOM<span class="sep">·</span><b>DRAG</b> PAN<span class="sep">·</span>${t("gallery.planet_click_hint")}
       </div>
     </div>
   `;
@@ -759,7 +774,7 @@ function paintGalGalaxy(payload: ReadOnlyUniverse, summary: UniverseSummary) {
   const $g = document.getElementById("gal-galaxy");
   if (!$g) return;
   const key = payload.universe.galaxy_type ?? classifyGalaxy(summary.star_count);
-  $g.textContent = GALAXY_LABEL[key] ?? key;
+  $g.textContent = GALAXY_LABEL_KEY[key] ? t(GALAXY_LABEL_KEY[key]) : key;
 }
 
 function classifyGalaxy(count: number): string {

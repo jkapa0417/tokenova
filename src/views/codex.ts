@@ -8,6 +8,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
+import { t } from "../i18n";
 import {
   PLANETS,
   PLANET_BY_ID,
@@ -15,6 +16,8 @@ import {
   RARITY_TIER_CODE,
   TIER_ORDER,
   TIER_PROBABILITY,
+  planetDesc,
+  planetName,
   type PlanetSpec,
 } from "../universe/catalog";
 import { clampCamera, makeView, ZOOM_MAX, ZOOM_MIN } from "../universe/camera";
@@ -146,7 +149,7 @@ function applySubtabUi(): void {
   const $disc = document.getElementById("codex-discovered");
   const $total = document.getElementById("codex-total");
   if (currentSub === "planets") {
-    if ($desc) $desc.textContent = `${lastPayload?.total_count ?? 30} SPECIES · 행성 도감`;
+    if ($desc) $desc.textContent = t("codex.species_count", { count: lastPayload?.total_count ?? 30 });
     if ($lbl) $lbl.textContent = "DISCOVERED";
     if ($disc) $disc.textContent = String(lastPayload?.discovered_count ?? 0);
     if ($total) {
@@ -155,12 +158,12 @@ function applySubtabUi(): void {
     }
   } else if (currentSub === "stars") {
     const found = totalDiscoveredStarShapes();
-    if ($desc) $desc.textContent = `${TOTAL_STAR_SHAPES} SHAPES · 별 도감`;
+    if ($desc) $desc.textContent = t("codex.shapes_count", { found, total: TOTAL_STAR_SHAPES });
     if ($lbl) $lbl.textContent = "DISCOVERED";
     if ($disc) $disc.textContent = String(found);
     if ($total) $total.textContent = String(TOTAL_STAR_SHAPES);
   } else {
-    if ($desc) $desc.textContent = `${lastConstellationCount} CONSTELLATIONS · 별자리 도감`;
+    if ($desc) $desc.textContent = t("codex.constellation_count", { count: lastConstellationCount });
     if ($lbl) $lbl.textContent = "REGISTERED";
     if ($disc) $disc.textContent = String(lastConstellationCount);
     if ($total) $total.textContent = "";
@@ -189,7 +192,7 @@ async function refreshPlanetGrid(): Promise<void> {
   if (!$content) return;
   disposeAllPlanetOrbs(planetGridCanvases);
   if (!lastPayload) {
-    $content.innerHTML = `<div style="color: var(--fg-3); text-align: center; padding: 40px 0;">로딩 중…</div>`;
+    $content.innerHTML = `<div style="color: var(--fg-3); text-align: center; padding: 40px 0;">${t("codex.loading")}</div>`;
     return;
   }
   const byKey = new Map<string, CodexCard>();
@@ -244,9 +247,7 @@ function renderStarTier(
   const shapes = STAR_SHAPES_BY_TIER[tier].filter(
     (s) => s !== "comet" && s !== "diamond" && s !== "triangle",
   );
-  const tierLabel: Record<typeof tier, string> = {
-    common: "일반", rare: "희귀", epic: "에픽", legendary: "전설", mythic: "신화",
-  };
+  const tierLabel = t(`rarity.${tier}`);
   const tierCode: Record<typeof tier, string> = {
     common: "c", rare: "u", epic: "e", legendary: "l", mythic: "m",
   };
@@ -255,7 +256,7 @@ function renderStarTier(
   return `
     <div class="tier-header">
       <span class="tier-pip diamond-${tierCode[tier]}"></span>
-      <span class="tier-name text-${tierCode[tier]}">${tierLabel[tier].toUpperCase()}</span>
+      <span class="tier-name text-${tierCode[tier]}">${tierLabel.toUpperCase()}</span>
       <span class="tier-info">${discoveredCount} / ${shapes.length}</span>
       <span class="tier-rule"></span>
     </div>
@@ -275,7 +276,7 @@ function renderStarCard(shape: StarShapeKind, isFound: boolean, count: number): 
           <div class="planet-orb-locked">?</div>
         </div>
         <div class="planet-name locked">???</div>
-        <div class="planet-meta">미발견</div>
+        <div class="planet-meta">${t("codex.undiscovered")}</div>
       </div>
     `;
   }
@@ -368,7 +369,7 @@ function renderCard(spec: PlanetSpec, card: CodexCard | undefined): string {
     <div class="planet-card tier-${tierCode}" data-key="${spec.id}">
       <div class="planet-count-badge">×${count}</div>
       <div class="planet-orb-wrap" data-planet-orb data-orb-id="${spec.id}" data-orb-size="72"></div>
-      <div class="planet-name">${spec.name}</div>
+      <div class="planet-name">${planetName(spec.id, spec.name)}</div>
       <div class="planet-meta">${RARITY_LABEL[spec.rarity].toUpperCase()}</div>
     </div>
   `;
@@ -417,7 +418,7 @@ function showQuickDetail(spec: PlanetSpec, locked: boolean, card: CodexCard | un
       <span class="crumb-sep">/</span>
       <span class="crumb-tier">${tierLabel.toUpperCase()}</span>
       <span class="crumb-sep">/</span>
-      <span class="crumb-active">${locked ? "???" : spec.name}</span>
+      <span class="crumb-active">${locked ? "???" : planetName(spec.id, spec.name)}</span>
     </div>
   `;
 
@@ -430,10 +431,10 @@ function showQuickDetail(spec: PlanetSpec, locked: boolean, card: CodexCard | un
           <div class="pm-locked-big">?</div>
         </div>
         <div class="pm-tier tier-${tierCode}">${tierLabel.toUpperCase()} · ${probability}</div>
-        <div class="pm-name">미발견 행성</div>
+        <div class="pm-name">${t("codex.undiscovered_planet")}</div>
         <p class="pm-desc">
-          아직 발견하지 못한 ${tierLabel} 등급 행성입니다.<br/>
-          한 세션에서 5,000 토큰 이상을 사용해 발견을 시도해 보세요.
+          ${t("codex.undiscovered_blurb", { tier: tierLabel })}<br/>
+          ${t("codex.undiscovered_hint")}
         </p>
       </div>
     `;
@@ -463,19 +464,19 @@ function showQuickDetail(spec: PlanetSpec, locked: boolean, card: CodexCard | un
           <div class="pm-orb-canvas-host" data-planet-orb data-orb-id="${spec.id}" data-orb-size="180"></div>
         </div>
         <div class="pm-tier tier-${tierCode}">${tierLabel.toUpperCase()} · ${probability}</div>
-        <div class="pm-name">${spec.name}</div>
-        <p class="pm-desc">${spec.desc}</p>
+        <div class="pm-name">${planetName(spec.id, spec.name)}</div>
+        <p class="pm-desc">${planetDesc(spec.id, spec.desc)}</p>
 
         <div class="pm-stats">
-          <div class="pm-stat-box"><div class="l">발견 수</div><div class="v">${count}</div></div>
-          <div class="pm-stat-box"><div class="l">첫 발견</div><div class="v">${first}</div></div>
-          <div class="pm-stat-box"><div class="l">마지막</div><div class="v">${last}</div></div>
+          <div class="pm-stat-box"><div class="l">${t("codex.discovery_count")}</div><div class="v">${count}</div></div>
+          <div class="pm-stat-box"><div class="l">${t("codex.first_discovery")}</div><div class="v">${first}</div></div>
+          <div class="pm-stat-box"><div class="l">${t("codex.last_discovery")}</div><div class="v">${last}</div></div>
         </div>
 
-        <div class="pm-section-label">발견 기록</div>
+        <div class="pm-section-label">${t("codex.discovery_log")}</div>
         <div class="pm-log">
           ${logRows.length === 0
-            ? `<div class="pm-log-empty">아직 발견 기록이 없습니다.</div>`
+            ? `<div class="pm-log-empty">${t("codex.no_discovery_log")}</div>`
             : logRows
                 .map(
                   (row) => `
@@ -489,7 +490,7 @@ function showQuickDetail(spec: PlanetSpec, locked: boolean, card: CodexCard | un
                 .join("")}
         </div>
 
-        <button class="pm-cta" id="pm-goto-gallery" type="button">갤러리에서 보기 →</button>
+        <button class="pm-cta" id="pm-goto-gallery" type="button">${t("codex.open_gallery")}</button>
       </div>
     `;
 
@@ -567,8 +568,8 @@ async function refreshConstellationGrid(): Promise<void> {
     if (list.length === 0) {
       $content.innerHTML = `
         <div class="const-empty">
-          아직 등록된 별자리가 없어요.<br/>
-          Today에서 별을 연결해보세요.
+          ${t("codex.constellation.empty_title")}<br/>
+          ${t("codex.constellation.empty_hint")}
         </div>`;
       return;
     }
@@ -586,7 +587,7 @@ async function refreshConstellationGrid(): Promise<void> {
     attachConstellationCardHandlers();
   } catch (e) {
     console.error("constellation codex:", e);
-    $content.innerHTML = `<div style="color: var(--fg-3); text-align: center; padding: 40px 0;">로딩 실패</div>`;
+    $content.innerHTML = `<div style="color: var(--fg-3); text-align: center; padding: 40px 0;">${t("codex.load_failed")}</div>`;
   }
 }
 
@@ -604,7 +605,7 @@ function renderConstellationCard(entry: ConstellationCodexEntry): string {
         <span class="sep">·</span>
         <span>${escapeHtml(cluster)}</span>
         <span class="sep">·</span>
-        <span>별 ${entry.stars.length}</span>
+        <span>${t("codex.constellation.stars_count", { count: entry.stars.length })}</span>
       </div>
     </div>`;
 }
@@ -824,25 +825,25 @@ function openConstellationDetail(entry: ConstellationCodexEntry): void {
     <canvas id="const-detail-canvas" class="const-detail-canvas"></canvas>
     <div class="planet-overlay" id="const-planet-overlay"></div>
     <button class="const-galaxy-toggle" id="const-galaxy-toggle" type="button" aria-pressed="false">
-      은하 보이기
+      ${t("codex.constellation.toggle_galaxy_on")}
     </button>
     <div class="info-strip">
       <div class="const-detail-text">
         <div class="date">${escapeHtml(entry.name)}</div>
-        <div class="meta">${date} · ${escapeHtml(cluster)} · 별 ${entry.stars.length}개</div>
+        <div class="meta">${date} · ${escapeHtml(cluster)} · ${t("codex.constellation.stars_count_units", { count: entry.stars.length })}</div>
       </div>
-      <button class="const-delete-btn" id="const-delete-${entry.id}" type="button">삭제</button>
+      <button class="const-delete-btn" id="const-delete-${entry.id}" type="button">${t("codex.constellation.delete_button")}</button>
     </div>
     <div class="const-confirm" id="const-confirm" hidden>
       <div class="const-confirm-card">
-        <div class="const-confirm-title">별자리를 삭제할까요?</div>
+        <div class="const-confirm-title">${t("codex.constellation.delete_confirm_title")}</div>
         <div class="const-confirm-body">
-          <b>${escapeHtml(entry.name)}</b> 별자리가 도감에서 제거됩니다.<br/>
-          이 동작은 되돌릴 수 없습니다.
+          ${t("codex.constellation.delete_confirm_msg", { name: escapeHtml(entry.name) })}<br/>
+          ${t("codex.constellation.delete_confirm_irreversible")}
         </div>
         <div class="const-confirm-actions">
-          <button class="const-confirm-cancel" id="const-confirm-cancel" type="button">취소</button>
-          <button class="const-confirm-ok" id="const-confirm-ok" type="button">삭제</button>
+          <button class="const-confirm-cancel" id="const-confirm-cancel" type="button">${t("codex.constellation.delete_confirm_cancel")}</button>
+          <button class="const-confirm-ok" id="const-confirm-ok" type="button">${t("codex.constellation.delete_confirm_ok")}</button>
         </div>
       </div>
     </div>
@@ -892,7 +893,9 @@ function openConstellationDetail(entry: ConstellationCodexEntry): void {
   toggle?.addEventListener("click", async () => {
     handle.showGalaxy = !handle.showGalaxy;
     toggle.setAttribute("aria-pressed", String(handle.showGalaxy));
-    toggle.textContent = handle.showGalaxy ? "은하 끄기" : "은하 보이기";
+    toggle.textContent = handle.showGalaxy
+      ? t("codex.constellation.toggle_galaxy_off")
+      : t("codex.constellation.toggle_galaxy_on");
     if (handle.showGalaxy && !handle.galaxyPayload) {
       try {
         const payload = await invoke<GalaxyPayload | null>("get_universe_by_id", {
