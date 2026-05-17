@@ -68,7 +68,11 @@ pub const MYTHIC_PLANETS: &[PlanetSpec] = &[
 ];
 
 /// Every catalog entry across all rarities, in display order. Used by the
-/// dev console's "discover-all" action.
+/// dev console's "discover-all" action. Release builds compile without the
+/// dev console module, so the function looks dead-code to the release
+/// compiler — gate the attribute on `debug_assertions` to silence the
+/// warning while keeping the function visible to debug builds.
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
 pub fn all_planets() -> impl Iterator<Item = &'static PlanetSpec> {
     COMMON_PLANETS.iter()
         .chain(RARE_PLANETS.iter())
