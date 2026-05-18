@@ -10,7 +10,13 @@ permissions:
   contents: write
 
 jobs:
+  # Gate: the same suite ci.yml runs on every push/PR must pass before
+  # we burn ~10 min of mac/win/linux build minutes on a tag.
+  checks:
+    uses: ./.github/workflows/_checks.yml
+
   publish-tauri:
+    needs: checks
     strategy:
       fail-fast: false
       matrix:
@@ -93,3 +99,110 @@ jobs:
           # The endpoint in tauri.conf.json points at this file.
           includeUpdaterJson: true
           args: ${{ matrix.args }}
+
+  # Stable-release-only: regenerate the Homebrew cask in the
+  # jkapa0417/homebrew-tokenova tap so `brew install --cask tokenova`
+  # tracks the latest stable build automatically.
+  #
+  # Gating:
+  # - Skipped on prerelease tags (`v*-rc.*`, `v*-beta.*`) — Homebrew
+  #   users get only stable builds.
+  # - Skipped on manual `workflow_dispatch` since github.ref_name would
+  #   be a branch name, not a release tag.
+  # - Runs after publish-tauri so the DMG asset is guaranteed to be
+  #   on the GitHub Release before we sha256 it.
+  update-cask:
+    needs: publish-tauri
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Locate macOS DMG asset on the release
+        id: dmg
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Don't hardcode Tauri's filename convention — discover the
+          # actual .dmg asset attached to this release. The universal
+          # build produces exactly one .dmg per release.
+          ASSET=$(gh release view "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json assets \
+            --jq '.assets[] | select(.name | endswith(".dmg")) | .name' | head -1)
+          if [ -z "$ASSET" ]; then
+            echo "No .dmg asset found on release ${GITHUB_REF_NAME}." >&2
+            exit 1
+          fi
+          gh release download "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern "$ASSET" \
+            --output "/tmp/${ASSET}"
+          SHA=$(shasum -a 256 "/tmp/${ASSET}" | awk '{print $1}')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "asset=${ASSET}" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure SSH for tap repo push
+        env:
+          DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Write Casks/tokenova.rb and push
+        env:
+          VERSION: ${{ steps.dmg.outputs.version }}
+          ASSET: ${{ steps.dmg.outputs.asset }}
+          SHA: ${{ steps.dmg.outputs.sha }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config --global user.name "jkapa0417"
+          git config --global user.email "70272348+jkapa0417@users.noreply.github.com"
+          git clone --depth 1 git@github.com:jkapa0417/homebrew-tokenova.git /tmp/tap
+          cd /tmp/tap
+          mkdir -p Casks
+          # The url interpolation uses Homebrew's #{version} so livecheck
+          # + future bumps don't need a regex rewrite over the URL line.
+          cat > Casks/tokenova.rb <<EOF
+          cask "tokenova" do
+            version "${VERSION}"
+            sha256 "${SHA}"
+
+            url "https://github.com/jkapa0417/tokenova/releases/download/v#{version}/${ASSET}",
+                verified: "github.com/jkapa0417/tokenova/"
+            name "Tokenova"
+            desc "Menubar token-usage tracker for Claude Code, Codex CLI, and OpenCode"
+            homepage "https://github.com/jkapa0417/tokenova"
+
+            livecheck do
+              url :url
+              strategy :github_latest
+            end
+
+            auto_updates true
+
+            app "Tokenova.app"
+
+            zap trash: [
+              "~/Library/Application Support/com.tokenova.app",
+              "~/Library/Preferences/com.tokenova.app.plist",
+              "~/Library/Caches/com.tokenova.app",
+              "~/Library/Logs/Tokenova",
+            ]
+          end
+          EOF
+          git add Casks/tokenova.rb
+          if git diff --cached --quiet; then
+            echo "Cask already at ${VERSION}; nothing to push."
+            exit 0
+          fi
+          git commit -m "Bump tokenova to ${VERSION}" \
+                     -m "Auto-generated from release ${TAG}.
+SHA-256: ${SHA}"
+          git push origin main
