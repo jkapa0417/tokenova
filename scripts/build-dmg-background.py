@@ -5,9 +5,13 @@ Compose the macOS DMG background image.
 Generates `src-tauri/dmg-background.png` (540x380, @2x produces 1080x760)
 combining:
   - deep-navy gradient backdrop
-  - the brand mark from src-tauri/icons/icon.png (left side)
-  - a gold "drag" arrow toward the right
+  - a gold "drag" arrow between the two icon slots
   - first-launch Gatekeeper bypass instructions
+
+We intentionally do NOT bake the Tokenova icon or wordmark into the
+background. Finder renders the live `.app` icon and its label on top at
+`appPosition`; baking another copy underneath creates a visible ghost
+and a doubled label.
 
 Run from repo root:
     python3 scripts/build-dmg-background.py
@@ -19,7 +23,6 @@ from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-ICON = ROOT / "src-tauri" / "icons" / "icon.png"
 OUT = ROOT / "src-tauri" / "dmg-background.png"
 OUT_2X = ROOT / "src-tauri" / "dmg-background@2x.png"
 
@@ -73,24 +76,33 @@ def add_starfield(img, count=80):
 
 
 def load_font(size, *, cjk=False):
-    """Try CJK-capable fonts when needed, otherwise DejaVu."""
+    """Try CJK-capable fonts when needed, otherwise a Latin face.
+
+    Candidates cover both macOS (local dev) and Linux (CI runner) so the
+    script produces identical output regardless of where it's run.
+    """
     cjk_candidates = [
+        # macOS
+        ("/System/Library/Fonts/AppleSDGothicNeo.ttc", 0),
+        ("/System/Library/Fonts/Supplemental/AppleGothic.ttf", 0),
+        # Linux
         ("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", 0),
         ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 0),
     ]
     latin_candidates = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        # macOS
+        ("/System/Library/Fonts/Supplemental/Arial Bold.ttf", None),
+        ("/System/Library/Fonts/Helvetica.ttc", 0),
+        # Linux
+        ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", None),
+        ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", None),
     ]
-    if cjk:
-        for path, index in cjk_candidates:
-            try:
-                return ImageFont.truetype(path, size, index=index)
-            except OSError:
-                continue
-    for path in latin_candidates:
+    candidates = cjk_candidates if cjk else latin_candidates
+    for path, index in candidates:
         try:
-            return ImageFont.truetype(path, size)
+            if index is None:
+                return ImageFont.truetype(path, size)
+            return ImageFont.truetype(path, size, index=index)
         except OSError:
             continue
     return ImageFont.load_default()
@@ -117,27 +129,9 @@ def compose(scale=1):
     add_starfield(img, count=120 * scale)
     draw = ImageDraw.Draw(img, "RGBA")
 
-    # Brand mark — centred above the app slot.
-    icon = Image.open(ICON).convert("RGBA")
-    icon_size = 130 * scale
-    icon = icon.resize((icon_size, icon_size), Image.LANCZOS)
-    icon_pos = (APP_X * scale - icon_size // 2, (APP_Y - 50) * scale - icon_size // 2)
-    img.paste(icon, icon_pos, icon)
-
-    # "Tokenova" wordmark below the icon (and above the drag-target label).
-    title_font = load_font(20 * scale)
     sub_font = load_font(11 * scale)
     body_font_latin = load_font(11 * scale)
     body_font_cjk = load_font(11 * scale, cjk=True)
-    title_text = "Tokenova"
-    bbox = draw.textbbox((0, 0), title_text, font=title_font)
-    tw = bbox[2] - bbox[0]
-    draw.text(
-        (APP_X * scale - tw // 2, (APP_Y - 50) * scale + icon_size // 2 + 6),
-        title_text,
-        font=title_font,
-        fill=GOLD,
-    )
 
     # Drag arrow: from icon area → Applications folder area.
     arrow_y = APP_Y * scale + 0
