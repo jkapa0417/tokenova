@@ -6,6 +6,12 @@ Every number and trigger condition in Tokenova. The code constants are always th
 
 ## Stars
 
+<p><img src="assets/atoms-star-anatomy.png" width="420" alt="Star size distribution — small 70% / medium 25% / large 5%" /></p>
+
+A star is then rolled into one of 12 shapes. Larger stars are more likely to land on the exotic shapes (Diamond, Binary, Comet, …).
+
+<p><img src="assets/atoms-star-zoo.png" width="640" alt="12 star shapes" /></p>
+
 ```
 TOKENS_PER_STAR = 200_000       (src-tauri/src/engine/types.rs)
 ```
@@ -16,6 +22,14 @@ TOKENS_PER_STAR = 200_000       (src-tauri/src/engine/types.rs)
 - Each star's coordinate is computed from `(universe_seed, star_index)` so the same index produces a different position each day (jittered to look natural).
 
 ## Planets
+
+The 31-species catalogue. Per-tier rates are in the roulette table further down.
+
+<p><img src="assets/atoms-planet-zoo.png" width="640" alt="31-planet catalogue — common / rare / epic / legendary / mythic" /></p>
+
+A Mythic discovery takes over the popover with a full-screen overlay:
+
+<p><img src="assets/moment-discovery.png" width="320" alt="Mythic discovery overlay — Dyson Sphere" /></p>
 
 ```
 PLANET_SESSION_THRESHOLD = 1_000_000      (engine/types.rs)
@@ -73,6 +87,14 @@ Once a planet is rolled, species is uniform within the rarity bucket. **30 speci
 
 ## Galaxy tiers
 
+The seed picks one of six layouts each day — `spiral · elliptical · irregular · dual_cluster · scattered · core_heavy`.
+
+<p><img src="assets/atoms-galaxy-types.png" width="640" alt="6 galaxy layout types" /></p>
+
+A canvas at the daily cap, sitting in Mega Galaxy tier:
+
+<p><img src="assets/moment-megagalaxy.png" width="320" alt="Mega galaxy at the daily cap" /></p>
+
 Classified at midnight close-out based on that day's total stars.
 
 ```
@@ -90,6 +112,13 @@ Stars             Tier
 The moment you cross 100 stars in a day, a tray notification "galaxy formed" fires.
 
 ## Constellations
+
+While drawing, an action bar drops down. Constellation colours cycle through a 5-tone palette as you register them.
+
+<p>
+  <img src="assets/moment-drawing-mode.png" width="320" alt="Constellation drawing mode" />
+  <img src="assets/atoms-constellation-colors.png" width="320" alt="5-color constellation palette" />
+</p>
 
 - User-drawn by clicking stars on Today. Minimum of 2 stars to save.
 - Name: blank input falls back to a deterministic auto-name (`adjective + subject + 자리 / Constellation`).
@@ -125,6 +154,12 @@ The moment you cross 100 stars in a day, a tray notification "galaxy formed" fir
 (See `src-tauri/src/engine/achievements.rs`.)
 
 Each achievement records once (idempotent insert). Earning one fires an OS tray notification plus an in-app emit.
+
+## Rest day (sleeping universe)
+
+A day that closes at zero tokens swaps the star canvas for a quiet moon-and-mist scene. The `first_black_hole` achievement fires.
+
+<p><img src="assets/moment-restday.png" width="320" alt="Rest day — sleeping universe" /></p>
 
 ## Midnight rollover
 

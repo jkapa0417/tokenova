@@ -62,7 +62,21 @@ Sessions auto-close after **5 minutes idle**. A session that crosses 1M tokens t
 
 ## Interface preview
 
-> Screenshots will be added when v0.1.0 ships. Design simulations live in [`docs/references/`](docs/references/).
+Four tabs in the same 480 × 620 tray popover.
+
+| Today · today's universe | Codex · 30-species atlas |
+|:---:|:---:|
+| <img src="docs/assets/popover-today.png" width="320" alt="Today" /> | <img src="docs/assets/popover-codex.png" width="320" alt="Codex" /> |
+| **Achievements** | **Gallery · 365-day collection** |
+| <img src="docs/assets/popover-achievements.png" width="320" alt="Achievements" /> | <img src="docs/assets/popover-gallery.png" width="320" alt="Gallery" /> |
+
+A Mythic discovery (0.1 % of all spawns) — a full-screen overlay slides in over the active tab.
+
+<p><img src="docs/assets/moment-discovery.png" width="360" alt="Mythic discovery — Dyson Sphere" /></p>
+
+Six galaxy layouts — the seed picks one each day. The same seed always renders the same shape.
+
+<p><img src="docs/assets/atoms-galaxy-types.png" width="640" alt="Galaxy layouts — spiral / elliptical / irregular / dual cluster / scattered / core-heavy" /></p>
 
 The brand mark across tab / tray / Dock:
 
@@ -70,6 +84,8 @@ The brand mark across tab / tray / Dock:
 |---|:---:|:---:|:---:|
 | | <img src="src-tauri/icons/tray-mac.png" width="44" alt="macOS template" /> | <img src="src-tauri/icons/tray-win.png" width="44" alt="Windows tray" /> | <img src="src-tauri/icons/tray-win-discovery.png" width="44" alt="Discovery indicator" /> |
 | Behaviour | System auto-tints | Full colour | Gold dot attached |
+
+> Captures above are exports from the design canvas in [`docs/assets/`](docs/assets/). The shipped app implements the same visual system but renders a different star/planet layout each day, seeded per user.
 
 ---
 

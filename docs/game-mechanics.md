@@ -6,6 +6,12 @@ Tokenova의 모든 수치 + 트리거 조건. 코드 상수가 항상 진실 —
 
 ## 별 (Star)
 
+<p><img src="assets/atoms-star-anatomy.png" width="420" alt="Star size distribution — small 70% / medium 25% / large 5%" /></p>
+
+별은 모양 12종으로 추첨됩니다. 큰 별일수록 특이형 (Diamond · Binary · Comet · …) 확률이 높습니다.
+
+<p><img src="assets/atoms-star-zoo.png" width="640" alt="12 star shapes" /></p>
+
 ```
 TOKENS_PER_STAR = 200_000       (src-tauri/src/engine/types.rs)
 ```
@@ -16,6 +22,14 @@ TOKENS_PER_STAR = 200_000       (src-tauri/src/engine/types.rs)
 - 별의 좌표는 `(universe_seed, star_index)`로 결정 → 같은 별 인덱스는 매일 다른 위치 (조밀해 보이지 않게 jitter).
 
 ## 행성 (Planet)
+
+31종 행성 카탈로그. 등급별 빈도는 아래 룰렛 표 참조.
+
+<p><img src="assets/atoms-planet-zoo.png" width="640" alt="31-planet catalog — common / rare / epic / legendary / mythic" /></p>
+
+Mythic 발견 순간은 풀스크린 오버레이로 처리됩니다:
+
+<p><img src="assets/moment-discovery.png" width="320" alt="Mythic discovery overlay — Dyson Sphere" /></p>
 
 ```
 PLANET_SESSION_THRESHOLD = 1_000_000      (engine/types.rs)
@@ -73,6 +87,14 @@ Mythic      0.1 %
 
 ## 은하 등급 (Galaxy Type)
 
+레이아웃은 6종 중 하나가 매일 시드로 선택됩니다 — `spiral · elliptical · irregular · dual_cluster · scattered · core_heavy`.
+
+<p><img src="assets/atoms-galaxy-types.png" width="640" alt="6 galaxy layout types" /></p>
+
+별 300개 이상이면 그 날의 우주는 Mega Galaxy. 행성 발견 캡 직전의 캔버스는 이런 모습:
+
+<p><img src="assets/moment-megagalaxy.png" width="320" alt="Mega galaxy at the daily cap" /></p>
+
 자정 마감 시 그 날의 별 개수로 분류.
 
 ```
@@ -90,6 +112,13 @@ Mythic      0.1 %
 100을 넘는 순간 트레이 알림 "은하 형성" 발사.
 
 ## 별자리 (Constellation)
+
+별을 클릭으로 이어 그리는 모드에선 하단에 액션바가 뜹니다. 등록 시점에 색상은 5종 팔레트 순환 사용.
+
+<p>
+  <img src="assets/moment-drawing-mode.png" width="320" alt="Constellation drawing mode" />
+  <img src="assets/atoms-constellation-colors.png" width="320" alt="5-color constellation palette" />
+</p>
 
 - 사용자가 Today에서 별 클릭으로 연결. 최소 2개부터 등록 가능.
 - 이름: 비워두면 결정적 자동 생성 (`adjective + subject + 자리/Constellation`).
@@ -125,6 +154,12 @@ Mythic      0.1 %
 (`src-tauri/src/engine/achievements.rs`)
 
 각 업적은 한 번만 기록 (idempotent insert). 달성 시 OS 트레이 알림 + 인앱 emit.
+
+## 쉬어가는 날 (잠든 우주)
+
+토큰이 0으로 마감되면 별 캔버스 대신 부드러운 달 + 별 풍경으로 대체됩니다. `잠든 우주` 업적 (`first_black_hole`) 이 따라옵니다.
+
+<p><img src="assets/moment-restday.png" width="320" alt="Rest day — sleeping universe" /></p>
 
 ## 자정 롤오버
 

@@ -65,7 +65,21 @@ A tray app that turns your AI coding token usage into a daily universe of stars 
 
 ## 인터페이스 미리보기
 
-> 스크린샷은 v0.1.0 정식 출시 시 추가 예정. 디자인 시뮬레이션은 [`docs/references/`](docs/references/).
+탭 4종 — 480 × 620 트레이 popover에 동일한 폭으로 들어갑니다.
+
+| Today · 오늘의 우주 | Codex · 30종 도감 |
+|:---:|:---:|
+| <img src="docs/assets/popover-today.png" width="320" alt="Today" /> | <img src="docs/assets/popover-codex.png" width="320" alt="Codex" /> |
+| **Achievements · 업적** | **Gallery · 365일 컬렉션** |
+| <img src="docs/assets/popover-achievements.png" width="320" alt="Achievements" /> | <img src="docs/assets/popover-gallery.png" width="320" alt="Gallery" /> |
+
+Mythic 발견 (전체 우주 0.1 %) — 풀스크린 오버레이가 popover 위로 슬라이드.
+
+<p><img src="docs/assets/moment-discovery.png" width="360" alt="Mythic discovery — Dyson Sphere" /></p>
+
+은하 레이아웃 6종 — 매일 시드에 따라 자동 선택. 같은 시드는 매번 같은 모양으로 재현됩니다.
+
+<p><img src="docs/assets/atoms-galaxy-types.png" width="640" alt="Galaxy layouts — spiral / elliptical / irregular / dual cluster / scattered / core-heavy" /></p>
 
 브랜드 마크 (탭/트레이/Dock 공통):
 
@@ -73,6 +87,8 @@ A tray app that turns your AI coding token usage into a daily universe of stars 
 |---|:---:|:---:|:---:|
 | | <img src="src-tauri/icons/tray-mac.png" width="44" alt="macOS template" /> | <img src="src-tauri/icons/tray-win.png" width="44" alt="Windows tray" /> | <img src="src-tauri/icons/tray-win-discovery.png" width="44" alt="Discovery indicator" /> |
 | 동작 | 시스템 자동 tint | 컬러 그대로 | 골드 dot 부착 |
+
+> 위 캡처는 [`docs/assets/`](docs/assets/)의 디자인 캔버스 출력입니다. 실제 앱은 같은 시각 시스템을 구현하되 사용자별 시드·세션에 따라 매일 다른 별·행성 배치를 그립니다.
 
 ---
 
