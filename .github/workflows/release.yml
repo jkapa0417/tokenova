@@ -198,9 +198,9 @@ jobs:
 
             zap trash: [
               "~/Library/Application Support/com.tokenova.app",
-              "~/Library/Preferences/com.tokenova.app.plist",
               "~/Library/Caches/com.tokenova.app",
               "~/Library/Logs/Tokenova",
+              "~/Library/Preferences/com.tokenova.app.plist",
             ]
           end
           EOF

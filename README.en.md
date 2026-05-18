@@ -103,33 +103,63 @@ Custom paths are configurable in **Settings → LLM Providers**. OpenCode also h
 
 ## Download
 
-Grab installers from the GitHub Releases page:
+### macOS — Homebrew (recommended)
 
-👉 **[Latest release](https://github.com/jkapa0417/tokenova/releases/latest)**
+```sh
+brew install --cask jkapa0417/tokenova/tokenova
+```
+
+Or tap once, then install by short name:
+```sh
+brew tap jkapa0417/tokenova
+brew install --cask tokenova
+```
+
+Installs to `/Applications/Tokenova.app`. The in-app updater handles future versions — you don't need `brew upgrade`.
+
+### macOS — DMG (no Homebrew)
+
+[Latest release](https://github.com/jkapa0417/tokenova/releases/latest) → `Tokenova_<version>_universal.dmg` (one file for Intel + Apple Silicon).
+
+Open the DMG and drag `Tokenova.app` into `/Applications/`.
+
+### macOS first run — bypassing Gatekeeper
+
+The current build is unsigned (Apple Developer ID not yet issued), so macOS Sequoia (15+) shows a one-time **"macOS cannot verify that this app is free of malware"** dialog. Bypass once and you're done.
+
+**Option 1 — System Settings (most standard)**
+1. Try to open the app → "cannot verify" dialog → click **Done**
+2. Open **System Settings → Privacy & Security**
+3. Scroll down to the **"Tokenova was blocked"** row → click **Open Anyway**
+4. Authenticate with Touch ID / password
+5. Confirm **Open Anyway** one more time
+
+**Option 2 — Single shell command**
+```sh
+sudo spctl --add /Applications/Tokenova.app
+open /Applications/Tokenova.app
+```
+
+Either path is one-time. After that, a small planet icon shows up in the menubar — left-click for the popover, right-click for the menu.
+
+> Apple Developer Program enrollment is in progress. Once the certificate lands, every release from then on will be properly signed + notarised and this workaround disappears.
+
+### Windows / Linux
+
+Grab installers from the GitHub Releases page:
 
 | OS | File |
 |---|---|
-| **macOS** (Intel + Apple Silicon) | `Tokenova_<version>_universal.dmg` |
 | **Windows** (x64) | `Tokenova_<version>_x64-setup.exe` |
 | **Linux** (x64) | `tokenova_<version>_amd64.AppImage` · `tokenova_<version>_amd64.deb` |
 
 > Once installed, the in-app auto-updater notices new versions and shows a banner.
 
-### macOS first run
-
-The DMG ships without Apple code signing, so Gatekeeper blocks the first launch. One-time workaround:
-
-1. Open the DMG, drag `Tokenova.app` to `/Applications/`.
-2. **Right-click → Open** (or `xattr -dr com.apple.quarantine /Applications/Tokenova.app`).
-3. Click **Open** in the "unidentified developer" dialog.
-
-After this, a small planet icon shows up in the menubar. Left-click toggles the popover, right-click opens the menu.
-
 ### Windows first run
 
 SmartScreen may say "Windows protected your PC" — click **More info → Run anyway**.
 
-### Linux (heads-up for GNOME)
+### Linux first run (heads-up for GNOME)
 
 GNOME hides the system tray by default. Install the AppIndicator extension to make the icon appear:
 

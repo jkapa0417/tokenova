@@ -106,33 +106,63 @@ Mythic 발견 (전체 우주 0.1 %) — 풀스크린 오버레이가 popover 위
 
 ## Download
 
-GitHub Releases 페이지에서 OS별 인스톨러를 받으세요.
+### macOS — Homebrew (권장)
 
-👉 **[Latest release](https://github.com/jkapa0417/tokenova/releases/latest)**
+```sh
+brew install --cask jkapa0417/tokenova/tokenova
+```
+
+또는 tap 분리:
+```sh
+brew tap jkapa0417/tokenova
+brew install --cask tokenova
+```
+
+설치하면 `/Applications/Tokenova.app` 으로 들어갑니다. 자동 업데이트는 인앱 updater가 처리 — brew upgrade 따로 안 해도 됩니다.
+
+### macOS — DMG (Homebrew 없이)
+
+[Latest release](https://github.com/jkapa0417/tokenova/releases/latest) → `Tokenova_<version>_universal.dmg` (Intel + Apple Silicon 한 파일).
+
+DMG 열고 `Tokenova.app` 을 `/Applications/` 폴더로 드래그.
+
+### macOS 첫 실행 — Gatekeeper 우회
+
+현재 빌드는 Apple Developer 코드 서명이 빠진 상태라 macOS Sequoia(15+)에서 첫 실행 시 **"악성 코드 확인 불가"** 다이얼로그가 한 번 뜹니다. 한 번만 우회하면 끝.
+
+**경로 1 — 시스템 설정 (가장 표준)**
+1. 앱 실행 시도 → "악성 코드 확인 불가" 다이얼로그 → **완료** 클릭
+2. **시스템 설정 → 개인정보 보호 및 보안** 열기
+3. 아래로 스크롤하면 "**Tokenova가 차단되었습니다**" 행 → **그래도 열기** 클릭
+4. Touch ID / 비밀번호 인증
+5. 다시 한 번 "그래도 열기" 확인
+
+**경로 2 — 명령줄 한 줄**
+```sh
+sudo spctl --add /Applications/Tokenova.app
+open /Applications/Tokenova.app
+```
+
+두 경로 모두 한 번만 하면 됩니다. 이후 메뉴바 우상단에 작은 행성 아이콘이 나타나고, 좌클릭으로 popover, 우클릭으로 메뉴.
+
+> Apple Developer Program 가입 진행 중. 인증서 발급 완료되면 다음 release 부터 정식 서명 + 노타라이즈되어 위 우회 단계가 사라집니다.
+
+### Windows / Linux
+
+GitHub Releases 페이지에서 OS별 인스톨러:
 
 | OS | 파일 |
 |---|---|
-| **macOS** (Intel + Apple Silicon) | `Tokenova_<version>_universal.dmg` |
 | **Windows** (x64) | `Tokenova_<version>_x64-setup.exe` |
 | **Linux** (x64) | `tokenova_<version>_amd64.AppImage` · `tokenova_<version>_amd64.deb` |
 
 > 한 번 설치한 후에는 인앱 자동 업데이트가 새 버전을 감지하면 알려줍니다.
 
-### macOS 첫 실행
-
-DMG는 코드 서명이 빠진 상태로 배포되므로 Gatekeeper가 차단합니다 — 한 번만 우회하면 됩니다.
-
-1. DMG를 열고 `Tokenova.app`을 `/Applications/` 폴더로 드래그
-2. **우클릭 → 열기** (또는 `xattr -dr com.apple.quarantine /Applications/Tokenova.app`)
-3. "확인되지 않은 개발자" 다이얼로그에서 **열기** 선택
-
-이후 메뉴바 우상단에 작은 행성 아이콘이 나타납니다. 좌클릭으로 popover, 우클릭으로 메뉴.
-
 ### Windows 첫 실행
 
 SmartScreen이 "Windows가 PC를 보호" 다이얼로그를 띄울 수 있습니다 → **추가 정보 → 실행** 으로 진행.
 
-### Linux (GNOME 사용자 주의)
+### Linux 첫 실행 (GNOME 사용자 주의)
 
 GNOME은 기본적으로 system tray를 숨깁니다. AppIndicator 익스텐션을 깔면 트레이 아이콘이 나타납니다:
 
