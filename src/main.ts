@@ -213,16 +213,31 @@ async function refreshTokenPill(): Promise<void> {
 }
 
 /**
- * Compact token formatting for the topbar pill — full digits up to 9 figures,
- * then "1.0B / 12.3B" past 1,000,000,000. The main Today HUD stays at full
- * digits via `numberFmt`; only the pill collapses.
+ * Compact token formatting for the topbar pill.
+ *
+ * - Past 1B everywhere: "1.0B / 12.3B / 120B".
+ * - Past 10M on Windows: "12.3M / 999M". Windows runs out of pill space
+ *   sooner because the topbar carries the extra close button, so digit
+ *   counts in the eight-figure range start to wrap; macOS / Linux still
+ *   show full digits with commas in that range.
+ * - Below the tier above: full digits via `numberFmt`.
+ *
+ * The Today HUD always shows full digits — only the pill collapses.
  */
 function formatCompactTokens(n: number): string {
-  if (n < 1_000_000_000) return numberFmt.format(n);
-  const billions = n / 1_000_000_000;
-  return billions >= 10
-    ? `${Math.round(billions)}B`
-    : `${(Math.round(billions * 10) / 10).toFixed(1)}B`;
+  if (n >= 1_000_000_000) {
+    const b = n / 1_000_000_000;
+    return b >= 10
+      ? `${Math.round(b)}B`
+      : `${(Math.round(b * 10) / 10).toFixed(1)}B`;
+  }
+  if (n >= 10_000_000 && document.body.classList.contains("os-windows")) {
+    const m = n / 1_000_000;
+    return m >= 100
+      ? `${Math.round(m)}M`
+      : `${(Math.round(m * 10) / 10).toFixed(1)}M`;
+  }
+  return numberFmt.format(n);
 }
 
 window.addEventListener("DOMContentLoaded", () => {

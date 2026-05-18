@@ -64,8 +64,10 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Transparent at html/body level so the rounded-corner cutouts on #app
+   reveal the desktop behind. The actual popover fill lives on #app. */
 html, body {
-  background: var(--bg-0);
+  background: transparent;
   color: var(--fg-0);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
@@ -75,7 +77,9 @@ html, body {
   user-select: none;
 }
 
-/* The whole 480×600 window IS the popover content — no chrome inside. */
+/* The whole 480×600 window IS the popover content — no chrome inside.
+   Round the visible rectangle and clip every descendant so headers /
+   overlays / modals never paint into the cut-off corner pixels. */
 #app {
   width: 100vw;
   height: 100vh;
@@ -83,6 +87,8 @@ html, body {
   flex-direction: column;
   background: var(--bg-0);
   position: relative;
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 button {
