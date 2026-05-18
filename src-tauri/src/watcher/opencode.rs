@@ -79,31 +79,36 @@ pub fn spawn_opencode_watcher(
         return Ok(());
     }
 
-    // Bootstrap.
-    // - First run ever: jump the high-water mark to the latest existing
-    //   row's time_updated so prior OpenCode conversations are treated as
-    //   already-consumed. No events are emitted from the historical data.
-    // - Subsequent runs: scan_once as usual.
-    let db_init = db.clone();
-    let tx_init = events_tx.clone();
-    let path_init = opencode_path.clone();
+    // Bootstrap + poll, serialized in a single task.
+    //
+    // Previously these were two parallel `spawn`s, which raced: `interval()`'s
+    // first `tick().await` returns immediately, so the poll loop could call
+    // `scan_once` before `baseline_to_latest` had persisted the high-water
+    // mark — `last_seen` would be 0 and the very first scan would ingest the
+    // user's entire OpenCode history.
     tauri::async_runtime::spawn(async move {
+        // Phase 1: bootstrap must complete before any polling.
         if first_run {
-            if let Err(e) = baseline_to_latest(&path_init, &db_init).await {
-                eprintln!("[opencode] baseline failed: {e:#}");
+            if let Err(e) = baseline_to_latest(&opencode_path, &db).await {
+                // If baseline failed, do NOT fall through into the poll loop —
+                // the saved offset is still 0 and the first scan would ingest
+                // the full history (the exact bug we're avoiding).
+                eprintln!(
+                    "[opencode] baseline failed, watcher disabled this session: {e:#}"
+                );
+                return;
             }
-        } else if let Err(e) = scan_once(&path_init, &db_init, &tx_init).await {
-            eprintln!("[opencode] bootstrap failed: {e:#}");
+        } else if let Err(e) = scan_once(&opencode_path, &db, &events_tx).await {
+            // Non-first-run: a saved offset already exists, so a failed
+            // bootstrap scan is recoverable — the poll loop will retry.
+            eprintln!("[opencode] bootstrap scan failed: {e:#}");
         }
-    });
 
-    // Steady-state poll loop.
-    let path_loop = opencode_path;
-    tauri::async_runtime::spawn(async move {
+        // Phase 2: steady-state poll loop.
         let mut tick = interval(Duration::from_secs(POLL_INTERVAL_SECS));
         loop {
             tick.tick().await;
-            if let Err(e) = scan_once(&path_loop, &db, &events_tx).await {
+            if let Err(e) = scan_once(&opencode_path, &db, &events_tx).await {
                 eprintln!("[opencode] poll error: {e:#}");
             }
         }
