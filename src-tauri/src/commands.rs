@@ -439,10 +439,7 @@ pub async fn get_notification_enabled(db: State<'_, Arc<Db>>) -> Result<bool, St
 /// Flip the desktop-notification gate. Reads pick this up on the next emit;
 /// no Notifier reset needed.
 #[tauri::command]
-pub async fn set_notification_enabled(
-    db: State<'_, Arc<Db>>,
-    enabled: bool,
-) -> Result<(), String> {
+pub async fn set_notification_enabled(db: State<'_, Arc<Db>>, enabled: bool) -> Result<(), String> {
     let db = db.inner().clone();
     tokio::task::spawn_blocking(move || {
         db.set_notification_enabled(enabled)
