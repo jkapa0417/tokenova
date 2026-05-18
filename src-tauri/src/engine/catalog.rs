@@ -138,13 +138,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn total_30_planets() {
+    fn total_31_planets() {
         let total = COMMON_PLANETS.len()
             + RARE_PLANETS.len()
             + EPIC_PLANETS.len()
             + LEGENDARY_PLANETS.len()
             + MYTHIC_PLANETS.len();
-        assert_eq!(total, 30, "catalog must contain exactly 30 planet types");
+        assert_eq!(total, 31, "catalog must contain exactly 31 planet types");
     }
 
     #[test]
@@ -163,7 +163,7 @@ mod tests {
         for p in all() {
             assert!(seen.insert(p.key), "duplicate planet key: {}", p.key);
         }
-        assert_eq!(seen.len(), 30);
+        assert_eq!(seen.len(), 31);
     }
 
     #[test]

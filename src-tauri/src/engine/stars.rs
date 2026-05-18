@@ -282,25 +282,29 @@ mod tests {
 
     #[test]
     fn plan_below_cap() {
-        let outcome = plan_star_additions(0, 2_500, 10);
+        // 2.5 stars' worth of tokens (TOKENS_PER_STAR = 200_000), 10 stars
+        // already on the canvas. Expect 2 new stars + leftover for half a star.
+        let outcome = plan_star_additions(0, 500_000, 10);
         assert_eq!(outcome.stars_added, 2);
-        assert_eq!(outcome.leftover_tokens, 500);
+        assert_eq!(outcome.leftover_tokens, 100_000);
         assert!(!outcome.hit_cap);
     }
 
     #[test]
     fn plan_with_leftover() {
-        let outcome = plan_star_additions(800, 300, 5);
+        // Leftover from the previous tick (160k) + a fresh 60k = 220k → one
+        // full star (200k) + 20k leftover carried forward.
+        let outcome = plan_star_additions(160_000, 60_000, 5);
         assert_eq!(outcome.stars_added, 1);
-        assert_eq!(outcome.leftover_tokens, 100);
+        assert_eq!(outcome.leftover_tokens, 20_000);
         assert!(!outcome.hit_cap);
     }
 
     #[test]
     fn plan_hits_cap_discards_overflow() {
-        // 1 star away from cap, 3 stars worth of tokens incoming → only 1 added,
-        // and the leftover should be cleared.
-        let outcome = plan_star_additions(0, 3_500, DAILY_STAR_CAP - 1);
+        // 1 star away from cap, 3.5 stars' worth of tokens incoming → only 1
+        // added, and the leftover should be cleared.
+        let outcome = plan_star_additions(0, 700_000, DAILY_STAR_CAP - 1);
         assert_eq!(outcome.stars_added, 1);
         assert_eq!(outcome.leftover_tokens, 0);
         assert!(outcome.hit_cap);
