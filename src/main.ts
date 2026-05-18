@@ -76,6 +76,21 @@ function enableWindowsDragRegion(): void {
       console.warn("[topbar] startDragging failed:", err);
     }
   });
+
+  // Custom close button (Windows only — see CSS). With auto-hide-on-blur
+  // removed on Windows, this is the only in-window way to dismiss the
+  // popover; the tray icon still toggles visibility too.
+  const closeBtn = document.getElementById("topbar-close");
+  closeBtn?.addEventListener("click", async () => {
+    try {
+      const { getCurrentWebviewWindow } = await import(
+        "@tauri-apps/api/webviewWindow"
+      );
+      await getCurrentWebviewWindow().hide();
+    } catch (err) {
+      console.warn("[topbar] hide failed:", err);
+    }
+  });
 }
 
 function readHashTab(): TabKey {

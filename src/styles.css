@@ -135,7 +135,29 @@ button {
    topbar area. Tab buttons and the token pill keep their own cursors. */
 body.os-windows .topbar { cursor: move; }
 body.os-windows .topbar .tab,
-body.os-windows .topbar .token-pill { cursor: pointer; }
+body.os-windows .topbar .token-pill,
+body.os-windows .topbar .topbar-close { cursor: pointer; }
+
+/* Windows-only close affordance. Hidden by default so macOS/Linux —
+   which dismiss via the tray icon — never see it. */
+.topbar-close {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-2);
+  transition: color 120ms, background 120ms;
+}
+.topbar-close:hover {
+  color: var(--fg-0);
+  background: rgba(255, 80, 80, 0.18);
+}
+body.os-windows .topbar-close { display: inline-flex; }
 
 .token-pill {
   display: flex;

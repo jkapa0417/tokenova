@@ -19,6 +19,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent, TrayIconId},
     AppHandle, Emitter, Manager,
 };
+use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_positioner::{Position, WindowExt};
 use tokio::sync::broadcast;
 
@@ -41,7 +42,8 @@ pub fn run() {
         //   - macOS: LaunchAgent (~/Library/LaunchAgents/com.tokenova.app.plist)
         //   - Windows: HKCU\Software\Microsoft\Windows\CurrentVersion\Run
         //   - Linux: XDG autostart (~/.config/autostart/com.tokenova.app.desktop)
-        // The default is OFF — users opt in via Settings → 정보.
+        // First-launch default is ON (enabled in `setup` below when
+        // `first_run` is true). Users can opt out via Settings → 시작 프로그램.
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -101,22 +103,11 @@ pub fn run() {
                 });
             }
 
-            // Windows-only: auto-hide the popover when it loses focus, so
-            // clicking anywhere outside the window closes it (standard tray /
-            // dropdown UX). macOS users use the menubar icon to re-toggle, and
-            // Linux desktops vary too widely to commit to one behaviour — so
-            // this stays Windows-specific. Debug builds skip it so devs can
-            // inspect the popover in DevTools without it vanishing on focus
-            // change.
-            #[cfg(all(target_os = "windows", not(debug_assertions)))]
-            if let Some(window) = app.get_webview_window("main") {
-                let win = window.clone();
-                window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::Focused(false) = event {
-                        let _ = win.hide();
-                    }
-                });
-            }
+            // Windows uses an explicit close button in the topbar instead of
+            // auto-hiding on focus loss. The popover stays put after the user
+            // clicks elsewhere, matching a regular floating-window experience
+            // rather than a transient dropdown. macOS / Linux still use the
+            // tray icon as the only show/hide affordance.
 
             // --- DB ---
             let data_dir = app.path().app_data_dir().expect("resolve app data dir");
@@ -190,6 +181,13 @@ pub fn run() {
                 if let Err(e) = db.mark_bootstrapped() {
                     eprintln!("[bootstrap] failed to mark complete: {e:#}");
                 }
+                // First-launch default: opt the user into auto-start at OS
+                // login so the tray icon is there next reboot without them
+                // having to remember to relaunch. The Settings toggle still
+                // lets them turn it off, and the choice persists from then on.
+                if let Err(e) = app.autolaunch().enable() {
+                    eprintln!("[autostart] enable on first-run failed: {e:#}");
+                }
             }
             // Hold the JSONL watcher handles for the lifetime of the app.
             app.manage(
@@ -245,10 +243,12 @@ pub fn run() {
             )?;
             let tray = TrayIconBuilder::with_id("tokenova-tray")
                 .icon(tray_icon)
-                // No-op on Windows/Linux. On macOS this tells AppKit the PNG
-                // is a template image — black silhouette gets auto-tinted to
-                // match the menubar accent + dark mode.
-                .icon_as_template(true)
+                // No-op on Windows/Linux. macOS used to template-tint the
+                // black silhouette (white on dark menubars, black on light),
+                // but that meant the icon disappeared into a light menubar.
+                // We now ship a baked white PNG and disable template mode so
+                // the icon stays visible on every appearance.
+                .icon_as_template(false)
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .tooltip("Tokenova")
@@ -302,7 +302,7 @@ fn toggle_popover(app: &tauri::AppHandle) {
     if window.is_visible().unwrap_or(false) {
         let _ = window.hide();
     } else {
-        let _ = window.move_window(Position::TrayCenter);
+        let _ = window.move_window(popover_open_position());
         let _ = window.show();
         let _ = window.set_focus();
         // Second focus after the webview has had a tick to settle. Without
@@ -369,12 +369,30 @@ pub(crate) fn set_tray_discovery(app: &AppHandle, on: bool) -> tauri::Result<()>
 /// items (Today, Codex, Achievements, Gallery, Settings, Open).
 fn show_and_route(app: &AppHandle, route: &str) {
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.move_window(Position::TrayCenter);
+        let _ = window.move_window(popover_open_position());
         let _ = window.show();
         let _ = window.set_focus();
     }
     // "open" means just surface the window — no tab change.
     if route != "open" {
         let _ = app.emit("tray-route", route);
+    }
+}
+
+/// Where the popover should appear when the user opens it via the tray.
+///
+/// Windows: dead-centre of the active monitor. The tray icon lives in the
+/// taskbar corner, but the popover is a regular floating window now (no
+/// auto-hide on blur), so anchoring it to the tray would just shove it
+/// into a corner. macOS / Linux keep the conventional tray-anchored
+/// dropdown behaviour.
+fn popover_open_position() -> Position {
+    #[cfg(target_os = "windows")]
+    {
+        Position::Center
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Position::TrayCenter
     }
 }
