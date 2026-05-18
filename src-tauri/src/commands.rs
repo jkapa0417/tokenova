@@ -426,6 +426,32 @@ pub async fn set_locale(db: State<'_, Arc<Db>>, value: String) -> Result<(), Str
         .map_err(|e| e.to_string())?
 }
 
+/// Read the desktop-notification gate (Settings → 알림 받기). Defaults to
+/// `true` on a fresh install (setting row absent).
+#[tauri::command]
+pub async fn get_notification_enabled(db: State<'_, Arc<Db>>) -> Result<bool, String> {
+    let db = db.inner().clone();
+    tokio::task::spawn_blocking(move || db.notification_enabled().map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Flip the desktop-notification gate. Reads pick this up on the next emit;
+/// no Notifier reset needed.
+#[tauri::command]
+pub async fn set_notification_enabled(
+    db: State<'_, Arc<Db>>,
+    enabled: bool,
+) -> Result<(), String> {
+    let db = db.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        db.set_notification_enabled(enabled)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[allow(dead_code)]
 fn _types_used(_: GalaxyType) {} // keep import alive for serde-derived structs
 

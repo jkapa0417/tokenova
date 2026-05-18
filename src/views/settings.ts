@@ -53,6 +53,7 @@ export async function activateSettings(): Promise<void> {
   await refresh();
   void paintVersion();
   void paintAutostart();
+  void paintNotifications();
 }
 
 function wire() {
@@ -87,12 +88,18 @@ function wire() {
     syncUpdateRow(getPendingUpdate()?.version ?? null);
     syncLangButtons();
     void paintAutostart();   // re-paint status text in new locale
+    void paintNotifications();
   });
 
   const $autoInput = document.getElementById(
     "settings-autostart-input",
   ) as HTMLInputElement | null;
   $autoInput?.addEventListener("change", () => void onAutostartToggle());
+
+  const $notifInput = document.getElementById(
+    "settings-notifications-input",
+  ) as HTMLInputElement | null;
+  $notifInput?.addEventListener("change", () => void onNotificationsToggle());
 
   wiredUp = true;
 }
@@ -110,6 +117,44 @@ async function paintAutostart(): Promise<void> {
   } catch (e) {
     console.error("isAutostartEnabled:", e);
     $status.textContent = t("settings.autostart.failed");
+  }
+}
+
+async function paintNotifications(): Promise<void> {
+  const $input = document.getElementById(
+    "settings-notifications-input",
+  ) as HTMLInputElement | null;
+  const $status = document.getElementById("settings-notifications-status");
+  if (!$input || !$status) return;
+  try {
+    const enabled = await invoke<boolean>("get_notification_enabled");
+    $input.checked = enabled;
+    $status.textContent = enabled
+      ? t("settings.notifications.on")
+      : t("settings.notifications.off");
+  } catch (e) {
+    console.error("get_notification_enabled:", e);
+    $status.textContent = t("settings.notifications.failed");
+  }
+}
+
+async function onNotificationsToggle(): Promise<void> {
+  const $input = document.getElementById(
+    "settings-notifications-input",
+  ) as HTMLInputElement | null;
+  const $status = document.getElementById("settings-notifications-status");
+  if (!$input || !$status) return;
+  const target = $input.checked;
+  try {
+    await invoke("set_notification_enabled", { enabled: target });
+    $status.textContent = target
+      ? t("settings.notifications.on")
+      : t("settings.notifications.off");
+  } catch (e) {
+    console.error("set_notification_enabled:", e);
+    // Revert the checkbox so the UI reflects the actual stored value.
+    $input.checked = !target;
+    $status.textContent = t("settings.notifications.failed");
   }
 }
 

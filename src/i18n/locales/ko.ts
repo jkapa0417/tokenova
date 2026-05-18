@@ -222,6 +222,13 @@ export const ko = {
       off: "꺼짐",
       failed: "변경 실패 — 권한을 확인해주세요.",
     },
+    notifications: {
+      title: "알림",
+      desc: "행성 발견, 업적, 거대 은하 형성 같은 순간을 OS 알림으로 띄웁니다.",
+      on: "켜짐",
+      off: "꺼짐",
+      failed: "변경 실패 — 잠시 후 다시 시도해주세요.",
+    },
   },
 
   updater: {

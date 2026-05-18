@@ -101,17 +101,29 @@ pub fn seconds_until_local_midnight(now: DateTime<Local>) -> i64 {
     diff.num_seconds().max(1)
 }
 
-/// Compute a deterministic seed from a calendar date. Stable across processes
-/// so the same day produces the same universe layout if it's regenerated.
-fn seed_from_date(date: NaiveDate) -> i64 {
+/// Compute a deterministic seed from a calendar date *and* a per-install
+/// random secret. Stable per install — re-rendering a past day on the
+/// same machine produces the same universe — but two different installs
+/// on the same day generate different seeds. Without the `user_seed`
+/// argument every fresh install would land on the exact same universe
+/// for any given date.
+fn seed_from_date(date: NaiveDate, user_seed: u64) -> i64 {
     // Mix year/month/day with a couple of large primes — plenty for our scale.
     let y = date.year() as i64;
     let m = date.month() as i64;
     let d = date.day() as i64;
-    y.wrapping_mul(1_000_003)
+    let date_mix = y.wrapping_mul(1_000_003)
         ^ m.wrapping_mul(2_654_435_761)
         ^ d.wrapping_mul(2_246_822_519)
-        ^ 0x9E37_79B9_7F4A_7C15u64 as i64
+        ^ 0x9E37_79B9_7F4A_7C15u64 as i64;
+    // Splitmix the user secret in so a tiny change in `user_seed`
+    // diffuses across every bit of the resulting seed.
+    let mut x = user_seed;
+    x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    x ^= x >> 31;
+    date_mix ^ (x as i64)
 }
 
 fn pick_for_seed<T: Copy>(seed: i64, options: &[T]) -> T {
@@ -131,7 +143,8 @@ pub fn get_or_create_today(db: &Arc<Db>) -> Result<Universe> {
         return Ok(existing);
     }
 
-    let seed = seed_from_date(date);
+    let user_seed = db.user_seed()?;
+    let seed = seed_from_date(date, user_seed);
     let layout = pick_for_seed(seed ^ 0xA1B2_C3D4, LAYOUT_SHAPES);
     let palette = pick_for_seed(seed ^ 0xDEAD_BEEF, PALETTES);
     let cluster_name = generate_cluster_name(seed);
@@ -161,16 +174,25 @@ mod tests {
     use chrono::NaiveDate;
 
     #[test]
-    fn seed_is_stable_per_date() {
+    fn seed_is_stable_per_date_and_user() {
         let d = NaiveDate::from_ymd_opt(2026, 5, 17).unwrap();
-        assert_eq!(seed_from_date(d), seed_from_date(d));
+        assert_eq!(seed_from_date(d, 0xABCD), seed_from_date(d, 0xABCD));
     }
 
     #[test]
     fn seeds_differ_per_date() {
         let d1 = NaiveDate::from_ymd_opt(2026, 5, 17).unwrap();
         let d2 = NaiveDate::from_ymd_opt(2026, 5, 18).unwrap();
-        assert_ne!(seed_from_date(d1), seed_from_date(d2));
+        assert_ne!(seed_from_date(d1, 0xABCD), seed_from_date(d2, 0xABCD));
+    }
+
+    #[test]
+    fn seeds_differ_per_user_on_same_date() {
+        // Same calendar day, two different installs — the bug we just
+        // fixed was that this assertion did not hold.
+        let d = NaiveDate::from_ymd_opt(2026, 5, 18).unwrap();
+        assert_ne!(seed_from_date(d, 1), seed_from_date(d, 2));
+        assert_ne!(seed_from_date(d, 0), seed_from_date(d, 0xDEAD_BEEF));
     }
 
     #[test]

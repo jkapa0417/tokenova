@@ -107,6 +107,13 @@ impl Notifier {
     }
 
     fn allowed(&self, standard_visible: bool) -> bool {
+        // Settings → "알림 받기" toggle. The user can flip this from the UI
+        // at any time; checking on each emit means we never have to invalidate
+        // a cached value. DB hit is microseconds vs the OS notification dispatch.
+        if !self.db.notification_enabled().unwrap_or(true) {
+            return false;
+        }
+
         let mut state = self.state.lock().expect("notifier poisoned");
         self.refresh_counter(&mut state);
 

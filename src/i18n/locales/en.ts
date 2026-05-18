@@ -225,6 +225,13 @@ export const en: Dictionary = {
       off: "Off",
       failed: "Couldn't change — please check permissions.",
     },
+    notifications: {
+      title: "Notifications",
+      desc: "Surface planet discoveries, achievements, and galaxy milestones as OS notifications.",
+      on: "On",
+      off: "Off",
+      failed: "Couldn't change — please try again.",
+    },
   },
 
   updater: {

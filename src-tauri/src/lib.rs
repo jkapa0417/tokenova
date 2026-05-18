@@ -70,6 +70,8 @@ pub fn run() {
             commands::clear_provider_path,
             commands::get_setting,
             commands::set_locale,
+            commands::get_notification_enabled,
+            commands::set_notification_enabled,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]

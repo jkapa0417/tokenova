@@ -913,6 +913,46 @@ impl Db {
         Ok(())
     }
 
+    /// OS-level desktop notifications gate. Defaults to ON when the
+    /// setting row is missing (fresh install). Stored as "1" / "0" in
+    /// the `settings` table so Tokenova's other string-only setting
+    /// plumbing keeps working.
+    pub fn notification_enabled(&self) -> Result<bool> {
+        match self.get_setting("notification.enabled")? {
+            Some(v) => Ok(v != "0"),
+            None => Ok(true),
+        }
+    }
+
+    pub fn set_notification_enabled(&self, enabled: bool) -> Result<()> {
+        self.set_setting("notification.enabled", if enabled { "1" } else { "0" })
+    }
+
+    /// Per-install random seed mixed into every universe's date-derived
+    /// seed so two users on the same calendar day do not generate the
+    /// identical universe. Lazily-initialized: first call generates a
+    /// random u64 and persists it under `user.seed`; subsequent calls
+    /// return the stored value.
+    ///
+    /// The previous design seeded only from `(year, month, day)`, which
+    /// meant every fresh install — across all machines and OSes — saw
+    /// the exact same galaxy layout, palette and star positions for any
+    /// given date. Per-install entropy fixes that without breaking
+    /// per-day replayability (the same install will still re-render
+    /// past days identically).
+    pub fn user_seed(&self) -> Result<u64> {
+        if let Some(stored) = self.get_setting("user.seed")? {
+            if let Ok(v) = stored.parse::<u64>() {
+                return Ok(v);
+            }
+        }
+        // First call ever, or the stored value is corrupted. Mint a new
+        // one and persist. `rand::random` uses the OS entropy source.
+        let seed: u64 = rand::random();
+        self.set_setting("user.seed", &seed.to_string())?;
+        Ok(seed)
+    }
+
     pub fn clear_setting(&self, key: &str) -> Result<()> {
         let conn = self.conn.lock().expect("db poisoned");
         conn.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
