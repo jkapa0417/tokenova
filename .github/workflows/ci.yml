@@ -11,6 +11,12 @@ on:
   pull_request:
     branches: [main]
 
+# Re-pushing main (force-push or quick succession) cancels the in-progress
+# CI run for the same ref — only the latest commit's checks finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   checks:
     uses: ./.github/workflows/_checks.yml

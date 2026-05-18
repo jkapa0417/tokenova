@@ -9,6 +9,13 @@ on:
 permissions:
   contents: write
 
+# Re-pushing the same tag (e.g. after a YAML or build fix) cancels the
+# in-progress build so we don't waste runner minutes finishing a stale
+# tree. Group is per-ref so different tags don't fight each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Gate: the same suite ci.yml runs on every push/PR must pass before
   # we burn ~10 min of mac/win/linux build minutes on a tag.
@@ -202,7 +209,8 @@ jobs:
             echo "Cask already at ${VERSION}; nothing to push."
             exit 0
           fi
-          git commit -m "Bump tokenova to ${VERSION}" \
-                     -m "Auto-generated from release ${TAG}.
-SHA-256: ${SHA}"
+          git commit \
+            -m "Bump tokenova to ${VERSION}" \
+            -m "Auto-generated from release ${TAG}." \
+            -m "SHA-256: ${SHA}"
           git push origin main
