@@ -195,8 +195,7 @@ impl Engine {
                 .map(|s| s.display_name)
                 .unwrap_or(planet.planet_type.as_str());
             let locale = crate::i18n::current_locale(&self.db);
-            let display =
-                crate::i18n::planet_display_name(locale, &planet.planet_type, ko_default);
+            let display = crate::i18n::planet_display_name(locale, &planet.planet_type, ko_default);
             self.notifier
                 .planet_discovered(&self.app, display, planet.rarity);
             // Push to frontend so the discovery overlay can open immediately

@@ -93,9 +93,7 @@ pub fn spawn_opencode_watcher(
                 // If baseline failed, do NOT fall through into the poll loop —
                 // the saved offset is still 0 and the first scan would ingest
                 // the full history (the exact bug we're avoiding).
-                eprintln!(
-                    "[opencode] baseline failed, watcher disabled this session: {e:#}"
-                );
+                eprintln!("[opencode] baseline failed, watcher disabled this session: {e:#}");
                 return;
             }
         } else if let Err(e) = scan_once(&opencode_path, &db, &events_tx).await {
@@ -134,11 +132,9 @@ fn query_latest_time_updated(opencode_path: &Path) -> Result<i64> {
     let conn = Connection::open_with_flags(opencode_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .with_context(|| format!("opening {opencode_path:?}"))?;
     let latest: Option<i64> = conn
-        .query_row(
-            "SELECT MAX(time_updated) FROM message",
-            [],
-            |row| row.get::<_, Option<i64>>(0),
-        )
+        .query_row("SELECT MAX(time_updated) FROM message", [], |row| {
+            row.get::<_, Option<i64>>(0)
+        })
         .ok()
         .flatten();
     Ok(latest.unwrap_or(0))

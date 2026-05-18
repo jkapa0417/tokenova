@@ -165,13 +165,9 @@ pub fn run() {
                 claude_override,
             )
             .expect("claude code watcher initialized");
-            let codex_handle = spawn_codex_cli_watcher(
-                db.clone(),
-                events_tx.clone(),
-                first_run,
-                codex_override,
-            )
-            .expect("codex cli watcher initialized");
+            let codex_handle =
+                spawn_codex_cli_watcher(db.clone(), events_tx.clone(), first_run, codex_override)
+                    .expect("codex cli watcher initialized");
             spawn_opencode_watcher(db.clone(), events_tx.clone(), first_run, opencode_override)
                 .expect("opencode watcher initialized");
             // Mark bootstrap done so subsequent launches resume incremental
@@ -220,13 +216,8 @@ pub fn run() {
             let gallery_i = MenuItem::with_id(app, "gallery", "Gallery", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
-            let quit_i = MenuItem::with_id(
-                app,
-                "quit",
-                "Quit Tokenova",
-                true,
-                Some("CmdOrCtrl+Q"),
-            )?;
+            let quit_i =
+                MenuItem::with_id(app, "quit", "Quit Tokenova", true, Some("CmdOrCtrl+Q"))?;
             let menu = Menu::with_items(
                 app,
                 &[
@@ -258,7 +249,8 @@ pub fn run() {
                         // Route through the popover by emitting a `tray-route`
                         // event the frontend listens to. Show + focus the
                         // window first so a hidden tray-app surfaces too.
-                        id @ ("open" | "today" | "codex" | "achievements" | "gallery" | "settings") => {
+                        id @ ("open" | "today" | "codex" | "achievements" | "gallery"
+                        | "settings") => {
                             show_and_route(app, id);
                         }
                         _ => {}
@@ -279,7 +271,9 @@ pub fn run() {
             // Stash the tray id so `set_tray_discovery` can find it later
             // when a new planet shows up and we need to swap the icon to the
             // gold-dot variant.
-            app.manage(TrayHandle { id: tray.id().clone() });
+            app.manage(TrayHandle {
+                id: tray.id().clone(),
+            });
 
             // If the app was closed with unacknowledged discoveries still in
             // the queue, surface them by starting in the discovery state.

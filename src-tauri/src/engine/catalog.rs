@@ -74,7 +74,8 @@ pub const MYTHIC_PLANETS: &[PlanetSpec] = &[
 /// warning while keeping the function visible to debug builds.
 #[cfg_attr(not(debug_assertions), allow(dead_code))]
 pub fn all_planets() -> impl Iterator<Item = &'static PlanetSpec> {
-    COMMON_PLANETS.iter()
+    COMMON_PLANETS
+        .iter()
         .chain(RARE_PLANETS.iter())
         .chain(EPIC_PLANETS.iter())
         .chain(LEGENDARY_PLANETS.iter())

@@ -48,15 +48,15 @@ struct Ctx {
     events_tx: broadcast::Sender<TokenEvent>,
 }
 
-pub fn maybe_start(
-    db: Arc<Db>,
-    engine: Arc<Engine>,
-    events_tx: broadcast::Sender<TokenEvent>,
-) {
+pub fn maybe_start(db: Arc<Db>, engine: Arc<Engine>, events_tx: broadcast::Sender<TokenEvent>) {
     if std::env::var("TOKENOVA_DEV_CONSOLE").is_err() {
         return;
     }
-    let ctx = Ctx { db, engine, events_tx };
+    let ctx = Ctx {
+        db,
+        engine,
+        events_tx,
+    };
     tauri::async_runtime::spawn(async move {
         if let Err(e) = serve(ctx).await {
             eprintln!("[dev-console] server crashed: {e:#}");
@@ -110,7 +110,9 @@ async fn read_request(stream: &mut TcpStream) -> Result<Req> {
     let header_bytes = &buf[..header_end];
     let header_str = std::str::from_utf8(header_bytes)?;
     let mut lines = header_str.split("\r\n");
-    let first = lines.next().ok_or_else(|| anyhow::anyhow!("empty request"))?;
+    let first = lines
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("empty request"))?;
     let mut parts = first.split_whitespace();
     let method = parts.next().unwrap_or("").to_string();
     let path = parts.next().unwrap_or("/").to_string();
@@ -302,7 +304,9 @@ struct TokenEventIn {
     cache_write: u64,
 }
 
-fn default_provider() -> String { "dev_console".to_string() }
+fn default_provider() -> String {
+    "dev_console".to_string()
+}
 
 fn post_token_event(ctx: &Ctx, body: &[u8]) -> Result<Vec<u8>> {
     let req: TokenEventIn = serde_json::from_slice(body)?;
@@ -336,7 +340,9 @@ struct TriggerPlanetIn {
     session_total_tokens: u64,
 }
 
-fn default_tokens() -> u64 { 6_000 }
+fn default_tokens() -> u64 {
+    6_000
+}
 
 async fn post_trigger_planet(ctx: &Ctx, body: &[u8]) -> Result<Vec<u8>> {
     let req: TriggerPlanetIn = serde_json::from_slice(body).unwrap_or(TriggerPlanetIn {
@@ -468,8 +474,7 @@ async fn post_discover_all(ctx: &Ctx) -> Result<Vec<u8>> {
             acknowledged_at: None,
         };
         let row_id = ctx.db.insert_planet(&planet)?;
-        ctx.db
-            .codex_record_discovery(spec.key, spec.rarity, now)?;
+        ctx.db.codex_record_discovery(spec.key, spec.rarity, now)?;
         // Track the just-inserted planet so subsequent picks avoid it.
         let mut stored = planet;
         stored.id = row_id;
@@ -499,10 +504,9 @@ async fn post_clear_tokens(ctx: &Ctx) -> Result<Vec<u8>> {
     let payload = ctx.engine.current_universe_payload().await?;
     let universe_id = payload.universe.id;
     let db = ctx.db.clone();
-    let stars_deleted = tokio::task::spawn_blocking(move || {
-        db.dev_delete_stars_for_universe(universe_id)
-    })
-    .await??;
+    let stars_deleted =
+        tokio::task::spawn_blocking(move || db.dev_delete_stars_for_universe(universe_id))
+            .await??;
 
     // Engine caches today_tokens / leftover_tokens + universe.star_count in
     // memory — force it to re-read from the DB or the HUD keeps showing

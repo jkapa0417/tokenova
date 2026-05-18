@@ -17,20 +17,20 @@ use crate::engine::types::{GalaxyType, Rarity};
 // Start
 pub const FIRST_STAR: &str = "first_star";
 pub const FIRST_PLANET: &str = "first_planet";
-pub const FIRST_UNIVERSE: &str = "first_universe";        // hit 100 stars in a day
+pub const FIRST_UNIVERSE: &str = "first_universe"; // hit 100 stars in a day
 pub const FIRST_CONSTELLATION: &str = "first_constellation";
 
 // Collect
-pub const CODEX_QUARTER: &str = "codex_quarter";          // 8 / 30
-pub const CODEX_HALF: &str = "codex_half";                // 15 / 30
-pub const CODEX_COMPLETE: &str = "codex_complete";        // 30 / 30
+pub const CODEX_QUARTER: &str = "codex_quarter"; // 8 / 30
+pub const CODEX_HALF: &str = "codex_half"; // 15 / 30
+pub const CODEX_COMPLETE: &str = "codex_complete"; // 30 / 30
 pub const FIRST_RARE_PLANET: &str = "first_rare_planet";
 pub const FIRST_LEGENDARY_PLANET: &str = "first_legendary_planet";
 pub const FIRST_MYTHIC_PLANET: &str = "first_mythic_planet";
 
 // Time
-pub const FIRST_BLACK_HOLE: &str = "first_black_hole";    // zero-activity day (잠든 우주)
-pub const FIRST_MEGA_GALAXY: &str = "first_mega_galaxy";  // hit the 1000-star daily cap
+pub const FIRST_BLACK_HOLE: &str = "first_black_hole"; // zero-activity day (잠든 우주)
+pub const FIRST_MEGA_GALAXY: &str = "first_mega_galaxy"; // hit the 1000-star daily cap
 
 // Rhythm — purely time-of-day buckets, awarded by future engine hooks.
 pub const NIGHT_OWL: &str = "night_owl";

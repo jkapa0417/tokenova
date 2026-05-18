@@ -98,10 +98,7 @@ pub async fn get_session_by_id(
 }
 
 #[tauri::command]
-pub async fn get_discovery_ordinal(
-    db: State<'_, Arc<Db>>,
-    planet_id: i64,
-) -> Result<i64, String> {
+pub async fn get_discovery_ordinal(db: State<'_, Arc<Db>>, planet_id: i64) -> Result<i64, String> {
     let db = db.inner().clone();
     tokio::task::spawn_blocking(move || db.discovery_ordinal(planet_id).map_err(|e| e.to_string()))
         .await
@@ -364,9 +361,7 @@ fn build_provider_health(db: &Arc<Db>, provider_id: &str) -> Result<ProviderHeal
 }
 
 #[tauri::command]
-pub async fn get_providers_health(
-    db: State<'_, Arc<Db>>,
-) -> Result<Vec<ProviderHealth>, String> {
+pub async fn get_providers_health(db: State<'_, Arc<Db>>) -> Result<Vec<ProviderHealth>, String> {
     let db = db.inner().clone();
     tokio::task::spawn_blocking(move || -> Result<Vec<ProviderHealth>, String> {
         let mut out = Vec::with_capacity(3);
@@ -411,10 +406,7 @@ pub async fn clear_provider_path(
 // ─────────────────────── Generic settings KV (for UI preferences) ───────────────────────
 
 #[tauri::command]
-pub async fn get_setting(
-    db: State<'_, Arc<Db>>,
-    key: String,
-) -> Result<Option<String>, String> {
+pub async fn get_setting(db: State<'_, Arc<Db>>, key: String) -> Result<Option<String>, String> {
     let db = db.inner().clone();
     tokio::task::spawn_blocking(move || db.get_setting(&key).map_err(|e| e.to_string()))
         .await
@@ -429,11 +421,9 @@ pub async fn set_locale(db: State<'_, Arc<Db>>, value: String) -> Result<(), Str
         return Err(format!("unsupported locale: {value}"));
     }
     let db = db.inner().clone();
-    tokio::task::spawn_blocking(move || {
-        db.set_setting("locale", &value).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || db.set_setting("locale", &value).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[allow(dead_code)]
